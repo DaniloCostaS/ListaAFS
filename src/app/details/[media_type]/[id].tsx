@@ -12,7 +12,14 @@ import {
   Linking 
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { getMediaDetails, getSeasonDetails, findBestTrailer, TMDBMediaDetail } from '../../../services/tmdb';
+import { 
+  getMediaDetails, 
+  getSeasonDetails, 
+  findBestTrailer, 
+  checkIfAnime,
+  getMediaAirStatusInfo,
+  TMDBMediaDetail 
+} from '../../../services/tmdb';
 import { useMediaDetails } from '../../../hooks/useMediaDetails';
 import { getDb } from '../../../database/useDatabase';
 import { useMediaList } from '../../../hooks/useMediaList';
@@ -133,8 +140,34 @@ export default function DetailsScreen() {
   const handleToggleSeason = async () => {
     if (seasonEpisodes.length === 0) return;
     const epNumbers = seasonEpisodes.map((ep: any) => ep.episode_number);
-    await toggleSeasonEpisodes(selectedSeason, epNumbers, !allSeasonEpisodesWatched);
+    const nextWatched = !allSeasonEpisodesWatched;
+    await toggleSeasonEpisodes(selectedSeason, epNumbers, nextWatched);
+    if (nextWatched && overallStatus === 'plan_to_watch') {
+      setOverallStatus('watching');
+    }
   };
+
+  const isAnime = details ? checkIfAnime(details) : false;
+  const totalShowEpisodes = useMemo(() => {
+    return details?.number_of_episodes || details?.seasons?.reduce((acc, s) => s.season_number > 0 ? acc + (s.episode_count || 0) : acc, 0) || 0;
+  }, [details]);
+
+  const totalWatchedEpisodes = useMemo(() => {
+    return episodes.filter(e => Boolean(e.watched)).length;
+  }, [episodes]);
+
+  const totalProgressPercent = totalShowEpisodes > 0 
+    ? Math.min(100, Math.round((totalWatchedEpisodes / totalShowEpisodes) * 100)) 
+    : 0;
+
+  const airStatusInfo = details ? getMediaAirStatusInfo({
+    media_type: media_type as string,
+    is_anime: isAnime,
+    air_status: details.status,
+    next_air_date: details.next_episode_to_air?.air_date,
+    next_episode_info: details.next_episode_to_air ? `T${details.next_episode_to_air.season_number} E${details.next_episode_to_air.episode_number}` : null,
+    release_date: details.release_date || details.first_air_date,
+  }) : null;
 
   if (loading || !details) {
     return (
@@ -175,6 +208,73 @@ export default function DetailsScreen() {
         
         <View style={styles.info}>
           <Text style={styles.title}>{title}</Text>
+
+          {/* Header Badges: Category & Watch Status */}
+          <View style={styles.headerBadgesRow}>
+            <View style={[styles.badge, isAnime ? styles.badgeAnime : media_type === 'movie' ? styles.badgeMovie : styles.badgeTv]}>
+              <Text style={styles.badgeText}>{isAnime ? '🎌 ANIME' : media_type === 'movie' ? '🎬 FILME' : '📺 SÉRIE'}</Text>
+            </View>
+            {overallStatus && (
+              <View style={[
+                styles.badge, 
+                overallStatus === 'watching' ? styles.statusBadgeWatching : overallStatus === 'completed' ? styles.statusBadgeCompleted : styles.statusBadgePlan
+              ]}>
+                <Text style={[
+                  styles.statusBadgeText,
+                  overallStatus === 'watching' ? styles.statusTextWatching : overallStatus === 'completed' ? styles.statusTextCompleted : styles.statusTextPlan
+                ]}>
+                  {overallStatus === 'watching' ? '▶ Assistindo' : overallStatus === 'completed' ? '✓ Concluído' : '🔖 Quero Assistir'}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Air Status / Next Episode Banner */}
+          {airStatusInfo && (
+            <View style={[
+              styles.detailsAirStatus,
+              airStatusInfo.badgeStyle === 'ended' && styles.detailsAirStatusEnded,
+              airStatusInfo.badgeStyle === 'scheduled' && styles.detailsAirStatusScheduled,
+              airStatusInfo.badgeStyle === 'ongoing' && styles.detailsAirStatusOngoing,
+            ]}>
+              <Text style={styles.detailsAirStatusIcon}>{airStatusInfo.icon}</Text>
+              <Text style={[
+                styles.detailsAirStatusText,
+                airStatusInfo.badgeStyle === 'ended' && styles.detailsAirStatusTextEnded,
+                airStatusInfo.badgeStyle === 'scheduled' && styles.detailsAirStatusTextScheduled,
+                airStatusInfo.badgeStyle === 'ongoing' && styles.detailsAirStatusTextOngoing,
+              ]}>
+                {airStatusInfo.label}
+              </Text>
+            </View>
+          )}
+
+          {/* Overall Series / Anime Progress Card */}
+          {media_type === 'tv' && (
+            <View style={styles.overallSeriesProgressCard}>
+              <View style={styles.overallSeriesProgressHeader}>
+                <Text style={styles.overallSeriesProgressTitle}>Progresso Total</Text>
+                <Text style={[styles.overallSeriesProgressPercent, totalProgressPercent === 100 && styles.overallSeriesProgressPercentDone]}>
+                  {totalProgressPercent === 100 ? '✓ 100%' : `${totalProgressPercent}%`}
+                </Text>
+              </View>
+              <View style={styles.overallSeriesProgressTrack}>
+                <View 
+                  style={[
+                    styles.overallSeriesProgressFill, 
+                    { width: `${totalProgressPercent}%` },
+                    totalProgressPercent === 100 
+                      ? styles.overallSeriesProgressFillDone 
+                      : (isAnime ? styles.overallSeriesProgressFillAnime : styles.overallSeriesProgressFillTv)
+                  ]} 
+                />
+              </View>
+              <Text style={styles.overallSeriesProgressSub}>
+                {totalWatchedEpisodes} de {totalShowEpisodes > 0 ? totalShowEpisodes : '?'} episódios assistidos
+              </Text>
+            </View>
+          )}
+
           <Text style={styles.overview}>{details.overview || 'Sem sinopse disponível.'}</Text>
           
           {/* Trailer Button if available */}
@@ -332,7 +432,11 @@ export default function DetailsScreen() {
                           activeOpacity={0.6}
                           onPress={(e) => {
                             e.stopPropagation?.();
-                            toggleEpisode(selectedSeason, ep.episode_number, !isWatched);
+                            const nextWatched = !isWatched;
+                            toggleEpisode(selectedSeason, ep.episode_number, nextWatched);
+                            if (nextWatched && overallStatus === 'plan_to_watch') {
+                              setOverallStatus('watching');
+                            }
                           }}
                         >
                           <View style={[styles.checkbox, isWatched && styles.checkboxChecked]}>
@@ -430,7 +534,11 @@ export default function DetailsScreen() {
                       isEpWatched ? styles.modalActionBtnWatched : styles.modalActionBtnUnwatched
                     ]}
                     onPress={() => {
-                      toggleEpisode(selectedSeason, selectedEpisodeForModal.episode_number, !isEpWatched);
+                      const nextWatched = !isEpWatched;
+                      toggleEpisode(selectedSeason, selectedEpisodeForModal.episode_number, nextWatched);
+                      if (nextWatched && overallStatus === 'plan_to_watch') {
+                        setOverallStatus('watching');
+                      }
                     }}
                     activeOpacity={0.7}
                   >
@@ -478,6 +586,156 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
     color: '#1a1a1a',
+  },
+  headerBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  badgeMovie: {
+    backgroundColor: '#007AFF18',
+  },
+  badgeTv: {
+    backgroundColor: '#00968818',
+  },
+  badgeAnime: {
+    backgroundColor: '#AF52DE18',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#333',
+  },
+  statusBadgeWatching: {
+    backgroundColor: '#007AFF16',
+    borderWidth: 1,
+    borderColor: '#007AFF35',
+  },
+  statusBadgeCompleted: {
+    backgroundColor: '#34C75916',
+    borderWidth: 1,
+    borderColor: '#34C75935',
+  },
+  statusBadgePlan: {
+    backgroundColor: '#FF950016',
+    borderWidth: 1,
+    borderColor: '#FF950035',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  statusTextWatching: {
+    color: '#0066cc',
+    fontWeight: '700',
+  },
+  statusTextCompleted: {
+    color: '#248a3d',
+    fontWeight: '700',
+  },
+  statusTextPlan: {
+    color: '#b26b00',
+    fontWeight: '700',
+  },
+  detailsAirStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#f1f5f9',
+  },
+  detailsAirStatusEnded: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  detailsAirStatusScheduled: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  detailsAirStatusOngoing: {
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  detailsAirStatusIcon: {
+    fontSize: 12,
+    marginRight: 6,
+  },
+  detailsAirStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  detailsAirStatusTextEnded: {
+    color: '#047857',
+  },
+  detailsAirStatusTextScheduled: {
+    color: '#1d4ed8',
+  },
+  detailsAirStatusTextOngoing: {
+    color: '#b45309',
+  },
+  overallSeriesProgressCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#edf2f7',
+  },
+  overallSeriesProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  overallSeriesProgressTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  overallSeriesProgressPercent: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  overallSeriesProgressPercentDone: {
+    color: '#34C759',
+  },
+  overallSeriesProgressTrack: {
+    height: 7,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  overallSeriesProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  overallSeriesProgressFillTv: {
+    backgroundColor: '#007AFF',
+  },
+  overallSeriesProgressFillAnime: {
+    backgroundColor: '#AF52DE',
+  },
+  overallSeriesProgressFillDone: {
+    backgroundColor: '#34C759',
+  },
+  overallSeriesProgressSub: {
+    fontSize: 11,
+    color: '#64748b',
   },
   overview: {
     fontSize: 14,

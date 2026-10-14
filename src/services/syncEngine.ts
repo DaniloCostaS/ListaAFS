@@ -151,7 +151,7 @@ export const syncEngine = {
         `SELECT q.tmdb_id, q.media_type 
          FROM sync_queue q 
          LEFT JOIN media_cache c ON q.tmdb_id = c.tmdb_id AND q.media_type = c.media_type 
-         WHERE (c.tmdb_id IS NULL OR c.release_date IS NULL OR c.is_anime IS NULL) AND 1 = $pending`,
+         WHERE (c.tmdb_id IS NULL OR c.release_date IS NULL OR c.is_anime IS NULL OR (q.media_type = 'tv' AND c.episode_count IS NULL)) AND 1 = $pending`,
         { $pending: 1 }
       );
 
@@ -179,12 +179,19 @@ export const syncEngine = {
           const isAnime = checkIfAnime(details);
           const trailerKey = findBestTrailer(details.videos?.results || []);
           const seasonCount = details.number_of_seasons || details.seasons?.filter(s => s.season_number > 0).length || 0;
+          const episodeCount = details.number_of_episodes || details.seasons?.reduce((acc, s) => s.season_number > 0 ? acc + (s.episode_count || 0) : acc, 0) || 0;
           const releaseDate = details.release_date || details.first_air_date || null;
           const voteAverage = details.vote_average ?? null;
+          const airStatus = details.status || null;
+          const nextAirDate = details.next_episode_to_air?.air_date || null;
+          const nextEpisodeInfo = details.next_episode_to_air 
+            ? `T${details.next_episode_to_air.season_number} E${details.next_episode_to_air.episode_number}` 
+            : null;
           
           await db.runAsync(
-            `INSERT OR REPLACE INTO media_cache (tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, last_fetched_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO media_cache (
+              tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, episode_count, air_status, next_air_date, next_episode_info, last_fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               Number(item.tmdb_id),
               String(item.media_type),
@@ -196,6 +203,10 @@ export const syncEngine = {
               voteAverage,
               seasonCount,
               trailerKey,
+              episodeCount,
+              airStatus,
+              nextAirDate,
+              nextEpisodeInfo,
               Number(Date.now())
             ]
           );

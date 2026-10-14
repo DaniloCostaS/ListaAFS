@@ -5,6 +5,7 @@ import { useSyncStore } from '../store/useSyncStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { Link, useFocusEffect } from 'expo-router';
 import { MediaCategory } from '../database/schema';
+import { getMediaAirStatusInfo } from '../services/tmdb';
 
 export default function MainScreen() {
   const { data, loading, loadMedia } = useMediaList();
@@ -52,18 +53,30 @@ export default function MainScreen() {
     return data;
   }, [data, selectedCategory]);
 
-  const getStatusText = (status: string) => {
+  const getStatusInfo = (status: string) => {
     switch (status) {
       case 'watching':
-        return 'Assistindo';
+        return { text: '▶ Assistindo', badgeStyle: styles.statusBadgeWatching, textStyle: styles.statusTextWatching };
       case 'completed':
-        return 'Concluído';
+        return { text: '✓ Concluído', badgeStyle: styles.statusBadgeCompleted, textStyle: styles.statusTextCompleted };
       case 'plan_to_watch':
-        return 'Quero Assistir';
       default:
-        return status;
+        return { text: '🔖 Quero Assistir', badgeStyle: styles.statusBadgePlan, textStyle: styles.statusTextPlan };
     }
   };
+
+  const overallProgress = useMemo(() => {
+    let totalEps = 0;
+    let watchedEps = 0;
+    filteredData.forEach((item) => {
+      if (item.media_type === 'tv') {
+        totalEps += (item.episode_count || 0);
+        watchedEps += (item.watched_episodes_count || 0);
+      }
+    });
+    const percent = totalEps > 0 ? Math.round((watchedEps / totalEps) * 100) : 0;
+    return { totalEps, watchedEps, percent };
+  }, [filteredData]);
 
   const renderItem = ({ item }: { item: MediaListItem }) => {
     const imageUrl = item.poster_path 
@@ -74,6 +87,16 @@ export default function MainScreen() {
     const categoryBadgeText = isAnime ? '🎌 ANIME' : item.media_type === 'movie' ? '🎬 FILME' : '📺 SÉRIE';
     const categoryBadgeStyle = isAnime ? styles.badgeAnime : item.media_type === 'movie' ? styles.badgeMovie : styles.badgeTv;
     const year = item.release_date ? item.release_date.substring(0, 4) : null;
+
+    // Progress metrics
+    const totalEpisodes = item.episode_count || 0;
+    const watchedEpisodes = item.watched_episodes_count || 0;
+    const progressPercent = totalEpisodes > 0 
+      ? Math.min(100, Math.round((watchedEpisodes / totalEpisodes) * 100)) 
+      : 0;
+
+    const statusInfo = getStatusInfo(item.status);
+    const airStatusInfo = getMediaAirStatusInfo(item);
 
     return (
       <Link href={`/details/${item.media_type}/${item.tmdb_id}`} asChild>
@@ -90,8 +113,8 @@ export default function MainScreen() {
               <View style={[styles.badge, categoryBadgeStyle]}>
                 <Text style={styles.badgeText}>{categoryBadgeText}</Text>
               </View>
-              <View style={[styles.badge, styles.statusBadge]}>
-                <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
+              <View style={[styles.badge, statusInfo.badgeStyle]}>
+                <Text style={[styles.statusBadgeText, statusInfo.textStyle]}>{statusInfo.text}</Text>
               </View>
             </View>
 
@@ -109,9 +132,59 @@ export default function MainScreen() {
               ) : null}
             </View>
 
-            <Text style={styles.overview} numberOfLines={2}>
-              {item.overview || 'Sem sinopse.'}
-            </Text>
+            {/* Air status tag: e.g. Finalizado, Próximo ep, or Em exibição */}
+            {airStatusInfo && (
+              <View style={[
+                styles.cardAirStatus,
+                airStatusInfo.badgeStyle === 'ended' && styles.cardAirStatusEnded,
+                airStatusInfo.badgeStyle === 'scheduled' && styles.cardAirStatusScheduled,
+                airStatusInfo.badgeStyle === 'ongoing' && styles.cardAirStatusOngoing,
+              ]}>
+                <Text style={styles.cardAirStatusIcon}>{airStatusInfo.icon}</Text>
+                <Text 
+                  style={[
+                    styles.cardAirStatusText,
+                    airStatusInfo.badgeStyle === 'ended' && styles.cardAirStatusTextEnded,
+                    airStatusInfo.badgeStyle === 'scheduled' && styles.cardAirStatusTextScheduled,
+                    airStatusInfo.badgeStyle === 'ongoing' && styles.cardAirStatusTextOngoing,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {airStatusInfo.label}
+                </Text>
+              </View>
+            )}
+
+            {/* Episode progress bar for Series / Anime */}
+            {item.media_type === 'tv' && (
+              <View style={styles.cardProgressContainer}>
+                <View style={styles.cardProgressHeader}>
+                  <Text style={styles.cardProgressLabel}>
+                    Progresso: <Text style={styles.cardProgressValue}>{watchedEpisodes}</Text>
+                    {totalEpisodes > 0 ? `/${totalEpisodes} eps` : ' eps assistidos'}
+                  </Text>
+                  {totalEpisodes > 0 && (
+                    <Text style={[
+                      styles.cardProgressPercent, 
+                      progressPercent === 100 && styles.cardProgressPercentDone
+                    ]}>
+                      {progressPercent === 100 ? '✓ 100%' : `${progressPercent}%`}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.cardProgressBarTrack}>
+                  <View 
+                    style={[
+                      styles.cardProgressBarFill,
+                      { width: `${progressPercent}%` },
+                      progressPercent === 100 
+                        ? styles.cardProgressBarFillDone 
+                        : (isAnime ? styles.cardProgressBarFillAnime : styles.cardProgressBarFillTv)
+                    ]} 
+                  />
+                </View>
+              </View>
+            )}
 
             {item.sync_pending === 1 && (
               <Text style={styles.pendingBadge}>⏳ Sincronização Pendente</Text>
@@ -183,6 +256,24 @@ export default function MainScreen() {
           );
         })}
       </View>
+
+      {/* Global Collection Progress Banner */}
+      {selectedCategory !== 'movie' && overallProgress.totalEps > 0 && (
+        <View style={styles.overallStatsBanner}>
+          <View style={styles.overallStatsHeader}>
+            <Text style={styles.overallStatsTitle}>
+              📊 Progresso {selectedCategory === 'anime' ? 'dos Animes' : selectedCategory === 'tv' ? 'das Séries' : 'Geral'}
+            </Text>
+            <Text style={styles.overallStatsPercent}>{overallProgress.percent}%</Text>
+          </View>
+          <View style={styles.overallProgressTrack}>
+            <View style={[styles.overallProgressFill, { width: `${overallProgress.percent}%` }]} />
+          </View>
+          <Text style={styles.overallStatsSubtitle}>
+            {overallProgress.watchedEps} de {overallProgress.totalEps} episódios assistidos
+          </Text>
+        </View>
+      )}
 
       {loading && data.length === 0 ? (
         <ActivityIndicator size="large" color="#007AFF" style={styles.loader} />
@@ -348,8 +439,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   poster: {
-    width: 90,
-    height: 135,
+    width: 95,
+    minHeight: 140,
     backgroundColor: '#e5e5e5',
   },
   posterPlaceholder: {
@@ -393,10 +484,37 @@ const styles = StyleSheet.create({
   statusBadge: {
     backgroundColor: '#f0f0f0',
   },
+  statusBadgeWatching: {
+    backgroundColor: '#007AFF16',
+    borderWidth: 1,
+    borderColor: '#007AFF35',
+  },
+  statusBadgeCompleted: {
+    backgroundColor: '#34C75916',
+    borderWidth: 1,
+    borderColor: '#34C75935',
+  },
+  statusBadgePlan: {
+    backgroundColor: '#FF950016',
+    borderWidth: 1,
+    borderColor: '#FF950035',
+  },
   statusBadgeText: {
     fontSize: 10,
     fontWeight: '600',
     color: '#666',
+  },
+  statusTextWatching: {
+    color: '#0066cc',
+    fontWeight: '700',
+  },
+  statusTextCompleted: {
+    color: '#248a3d',
+    fontWeight: '700',
+  },
+  statusTextPlan: {
+    color: '#b26b00',
+    fontWeight: '700',
   },
   title: {
     fontSize: 15,
@@ -413,6 +531,145 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#777',
     fontWeight: '500',
+  },
+  cardAirStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginVertical: 3,
+    alignSelf: 'flex-start',
+    backgroundColor: '#f1f5f9',
+  },
+  cardAirStatusEnded: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  cardAirStatusScheduled: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  cardAirStatusOngoing: {
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  cardAirStatusIcon: {
+    fontSize: 10,
+    marginRight: 4,
+  },
+  cardAirStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  cardAirStatusTextEnded: {
+    color: '#047857',
+  },
+  cardAirStatusTextScheduled: {
+    color: '#1d4ed8',
+  },
+  cardAirStatusTextOngoing: {
+    color: '#b45309',
+  },
+  cardProgressContainer: {
+    marginTop: 5,
+    marginBottom: 2,
+    backgroundColor: '#f8fafc',
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#edf2f7',
+  },
+  cardProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  cardProgressLabel: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  cardProgressValue: {
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  cardProgressPercent: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  cardProgressPercentDone: {
+    color: '#34C759',
+  },
+  cardProgressBarTrack: {
+    height: 5,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  cardProgressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  cardProgressBarFillTv: {
+    backgroundColor: '#007AFF',
+  },
+  cardProgressBarFillAnime: {
+    backgroundColor: '#AF52DE',
+  },
+  cardProgressBarFillDone: {
+    backgroundColor: '#34C759',
+  },
+  overallStatsBanner: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  overallStatsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  overallStatsTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  overallStatsPercent: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  overallProgressTrack: {
+    height: 6,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  overallProgressFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+    borderRadius: 3,
+  },
+  overallStatsSubtitle: {
+    fontSize: 11,
+    color: '#64748b',
   },
   overview: {
     color: '#555',

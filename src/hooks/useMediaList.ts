@@ -18,6 +18,11 @@ export interface MediaListItem {
   vote_average?: number | null;
   season_count?: number | null;
   trailer_key?: string | null;
+  episode_count?: number | null;
+  air_status?: string | null;
+  next_air_date?: string | null;
+  next_episode_info?: string | null;
+  watched_episodes_count?: number;
 }
 
 export interface MediaMetadataInput {
@@ -29,6 +34,10 @@ export interface MediaMetadataInput {
   vote_average?: number | null;
   season_count?: number | null;
   trailer_key?: string | null;
+  episode_count?: number | null;
+  air_status?: string | null;
+  next_air_date?: string | null;
+  next_episode_info?: string | null;
 }
 
 export const useMediaList = () => {
@@ -54,12 +63,19 @@ export const useMediaList = () => {
           const isAnime = checkIfAnime(details);
           const trailerKey = findBestTrailer(details.videos?.results || []);
           const seasonCount = details.number_of_seasons || details.seasons?.filter(s => s.season_number > 0).length || 0;
+          const episodeCount = details.number_of_episodes || details.seasons?.reduce((acc, s) => s.season_number > 0 ? acc + (s.episode_count || 0) : acc, 0) || 0;
           const releaseDate = details.release_date || details.first_air_date || null;
           const voteAverage = details.vote_average ?? null;
+          const airStatus = details.status || null;
+          const nextAirDate = details.next_episode_to_air?.air_date || null;
+          const nextEpisodeInfo = details.next_episode_to_air 
+            ? `T${details.next_episode_to_air.season_number} E${details.next_episode_to_air.episode_number}` 
+            : null;
 
           await db.runAsync(
-            `INSERT OR REPLACE INTO media_cache (tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, last_fetched_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO media_cache (
+              tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, episode_count, air_status, next_air_date, next_episode_info, last_fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               Number(item.tmdb_id),
               String(item.media_type),
@@ -71,6 +87,10 @@ export const useMediaList = () => {
               voteAverage,
               seasonCount,
               trailerKey,
+              episodeCount,
+              airStatus,
+              nextAirDate,
+              nextEpisodeInfo,
               Date.now()
             ]
           );
@@ -82,7 +102,13 @@ export const useMediaList = () => {
 
       if (hasChanges) {
         const updated = await db.getAllAsync<MediaListItem>(
-          `SELECT q.*, c.title, c.overview, c.poster_path, c.is_anime, c.release_date, c.vote_average, c.season_count, c.trailer_key 
+          `SELECT q.*, c.title, c.overview, c.poster_path, c.is_anime, c.release_date, c.vote_average, c.season_count, c.trailer_key,
+                  c.episode_count, c.air_status, c.next_air_date, c.next_episode_info,
+                  COALESCE((
+                    SELECT COUNT(*) 
+                    FROM sync_episodes_queue eq 
+                    WHERE eq.tmdb_id = q.tmdb_id AND eq.watched = 1
+                  ), 0) AS watched_episodes_count
            FROM sync_queue q
            LEFT JOIN media_cache c ON q.tmdb_id = c.tmdb_id AND q.media_type = c.media_type
            ORDER BY q.updated_at DESC`
@@ -99,7 +125,13 @@ export const useMediaList = () => {
     try {
       const db = await getDb();
       let query = `
-        SELECT q.*, c.title, c.overview, c.poster_path, c.is_anime, c.release_date, c.vote_average, c.season_count, c.trailer_key 
+        SELECT q.*, c.title, c.overview, c.poster_path, c.is_anime, c.release_date, c.vote_average, c.season_count, c.trailer_key,
+               c.episode_count, c.air_status, c.next_air_date, c.next_episode_info,
+               COALESCE((
+                 SELECT COUNT(*) 
+                 FROM sync_episodes_queue eq 
+                 WHERE eq.tmdb_id = q.tmdb_id AND eq.watched = 1
+               ), 0) AS watched_episodes_count
         FROM sync_queue q
         LEFT JOIN media_cache c ON q.tmdb_id = c.tmdb_id AND q.media_type = c.media_type
         WHERE 1 = $dummy
@@ -127,9 +159,10 @@ export const useMediaList = () => {
 
       setData(result);
 
-      // Check if any items need metadata population (e.g. Boruto/Slime with missing release_date or unclassified anime)
+      // Check if any items need metadata population (e.g. Boruto/Slime with missing release_date, unclassified anime, or missing episode count)
       const needsBackfill = result.filter(
-        item => item.release_date === null || (item.media_type === 'tv' && (item.is_anime === 0 || item.is_anime === null))
+        item => item.release_date === null || 
+                (item.media_type === 'tv' && (item.is_anime === 0 || item.is_anime === null || item.episode_count == null || item.air_status == null))
       );
       if (needsBackfill.length > 0) {
         setTimeout(() => {
@@ -172,8 +205,9 @@ export const useMediaList = () => {
 
       if (metadata) {
         await db.runAsync(
-          `INSERT OR REPLACE INTO media_cache (tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, last_fetched_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO media_cache (
+            tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, episode_count, air_status, next_air_date, next_episode_info, last_fetched_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             Number(tmdb_id),
             String(media_type),
@@ -185,6 +219,10 @@ export const useMediaList = () => {
             metadata.vote_average ?? null,
             metadata.season_count ?? 0,
             metadata.trailer_key ?? null,
+            metadata.episode_count ?? 0,
+            metadata.air_status ?? null,
+            metadata.next_air_date ?? null,
+            metadata.next_episode_info ?? null,
             Number(now)
           ]
         );

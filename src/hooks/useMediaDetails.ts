@@ -48,6 +48,20 @@ export const useMediaDetails = (tmdb_id: number) => {
           now
         ]
       );
+
+      // Auto-update status from 'plan_to_watch' to 'watching' if watching an episode
+      if (watched) {
+        const currentItem = await db.getFirstAsync<{ status: string }>(
+          'SELECT status FROM sync_queue WHERE tmdb_id = ?',
+          [Number(tmdb_id)]
+        );
+        if (currentItem && currentItem.status === 'plan_to_watch') {
+          await db.runAsync(
+            'UPDATE sync_queue SET status = ?, updated_at = ?, sync_pending = 1 WHERE tmdb_id = ?',
+            ['watching', now, Number(tmdb_id)]
+          );
+        }
+      }
       
       await loadEpisodes();
       runSync();
@@ -80,6 +94,20 @@ export const useMediaDetails = (tmdb_id: number) => {
               now
             ]
           );
+        }
+
+        // Auto-update status from 'plan_to_watch' to 'watching' if watching season
+        if (watched) {
+          const currentItem = await db.getFirstAsync<{ status: string }>(
+            'SELECT status FROM sync_queue WHERE tmdb_id = ?',
+            [Number(tmdb_id)]
+          );
+          if (currentItem && currentItem.status === 'plan_to_watch') {
+            await db.runAsync(
+              'UPDATE sync_queue SET status = ?, updated_at = ?, sync_pending = 1 WHERE tmdb_id = ?',
+              ['watching', now, Number(tmdb_id)]
+            );
+          }
         }
       });
 

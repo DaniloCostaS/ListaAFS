@@ -22,6 +22,10 @@ export const SQLITE_SCHEMA = `
     vote_average REAL,
     season_count INTEGER DEFAULT 0,
     trailer_key TEXT,
+    episode_count INTEGER DEFAULT 0,
+    air_status TEXT,
+    next_air_date TEXT,
+    next_episode_info TEXT,
     PRIMARY KEY (tmdb_id, media_type)
   );
 
@@ -60,6 +64,10 @@ export interface MediaCacheItem {
   vote_average?: number | null;
   season_count?: number | null;
   trailer_key?: string | null;
+  episode_count?: number | null;
+  air_status?: string | null;
+  next_air_date?: string | null;
+  next_episode_info?: string | null;
 }
 
 export interface SyncEpisodeItem {

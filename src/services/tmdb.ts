@@ -45,6 +45,21 @@ export interface TMDBMediaDetail {
     episode_count: number;
     poster_path?: string | null;
   }[];
+  status?: string;
+  next_episode_to_air?: {
+    id: number;
+    name?: string;
+    air_date?: string;
+    episode_number?: number;
+    season_number?: number;
+  } | null;
+  last_episode_to_air?: {
+    id: number;
+    name?: string;
+    air_date?: string;
+    episode_number?: number;
+    season_number?: number;
+  } | null;
   videos?: {
     results: {
       id: string;
@@ -92,6 +107,87 @@ export const findBestTrailer = (videos: any[] = []): string | null => {
   if (teaser) return teaser.key;
 
   return youtubeVideos[0]?.key || null;
+};
+
+export const formatAirDate = (dateStr?: string | null): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
+export interface MediaAirStatusInfo {
+  type: 'ended' | 'scheduled' | 'ongoing_no_date' | 'movie';
+  label: string;
+  badgeStyle: 'ended' | 'scheduled' | 'ongoing' | 'movie';
+  icon: string;
+}
+
+export const getMediaAirStatusInfo = (item: {
+  media_type: string;
+  is_anime?: boolean | number | null;
+  air_status?: string | null;
+  next_air_date?: string | null;
+  next_episode_info?: string | null;
+  release_date?: string | null;
+}): MediaAirStatusInfo | null => {
+  if (item.media_type === 'movie') {
+    if (!item.release_date) return null;
+    const isFuture = new Date(item.release_date).getTime() > Date.now();
+    if (isFuture) {
+      return {
+        type: 'movie',
+        label: `Estreia em ${formatAirDate(item.release_date)}`,
+        badgeStyle: 'scheduled',
+        icon: '🗓️',
+      };
+    }
+    return null;
+  }
+
+  // TV / Anime
+  const isAnime = Boolean(item.is_anime);
+  const statusLower = (item.air_status || '').toLowerCase();
+
+  if (statusLower === 'ended') {
+    return {
+      type: 'ended',
+      label: isAnime ? 'Finalizado • Todos os eps lançados' : 'Finalizada • Todos os eps lançados',
+      badgeStyle: 'ended',
+      icon: '🏁',
+    };
+  }
+
+  if (statusLower === 'canceled') {
+    return {
+      type: 'ended',
+      label: 'Cancelada • Todos os eps lançados',
+      badgeStyle: 'ended',
+      icon: '⛔',
+    };
+  }
+
+  if (item.next_air_date) {
+    const formattedDate = formatAirDate(item.next_air_date);
+    const epSuffix = item.next_episode_info ? ` (${item.next_episode_info})` : '';
+    return {
+      type: 'scheduled',
+      label: `Próximo ep: ${formattedDate}${epSuffix}`,
+      badgeStyle: 'scheduled',
+      icon: '🗓️',
+    };
+  }
+
+  // Ongoing or returning, but no upcoming episode date scheduled
+  return {
+    type: 'ongoing_no_date',
+    label: 'Em exibição • Sem data para novo ep.',
+    badgeStyle: 'ongoing',
+    icon: '⏳',
+  };
 };
 
 const fetchFromTMDB = async (endpoint: string, params: Record<string, string> = {}) => {

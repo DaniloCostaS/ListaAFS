@@ -23,7 +23,8 @@ import {
   YEAR_OPTIONS,
   SORT_OPTIONS,
   TMDBMultiSearchResult, 
-  TMDBMediaDetail 
+  TMDBMediaDetail,
+  getMediaAirStatusInfo 
 } from '../services/tmdb';
 import { useMediaList } from '../hooks/useMediaList';
 import { getDb } from '../database/useDatabase';
@@ -217,8 +218,14 @@ export default function SearchScreen() {
       const isAnime = checkIfAnime(detail || item);
       const trailerKey = detail ? findBestTrailer(detail.videos?.results || []) : null;
       const seasonCount = detail?.number_of_seasons || detail?.seasons?.filter(s => s.season_number > 0).length || 0;
+      const episodeCount = detail?.number_of_episodes || detail?.seasons?.reduce((acc, s) => s.season_number > 0 ? acc + (s.episode_count || 0) : acc, 0) || 0;
       const releaseDate = detail?.release_date || detail?.first_air_date || item.release_date || item.first_air_date || null;
       const voteAverage = detail?.vote_average ?? item.vote_average ?? null;
+      const airStatus = detail?.status || null;
+      const nextAirDate = detail?.next_episode_to_air?.air_date || null;
+      const nextEpisodeInfo = detail?.next_episode_to_air 
+        ? `T${detail.next_episode_to_air.season_number} E${detail.next_episode_to_air.episode_number}` 
+        : null;
 
       await addOrUpdateMedia(item.id, item.media_type, 'plan_to_watch', {
         title: item.title || item.name || detail?.title || detail?.name || null,
@@ -229,6 +236,10 @@ export default function SearchScreen() {
         vote_average: voteAverage,
         season_count: seasonCount,
         trailer_key: trailerKey,
+        episode_count: episodeCount,
+        air_status: airStatus,
+        next_air_date: nextAirDate,
+        next_episode_info: nextEpisodeInfo,
       });
 
       // Update local set of existing IDs
@@ -297,6 +308,14 @@ export default function SearchScreen() {
     const year = (item.release_date || item.first_air_date || detail?.release_date || detail?.first_air_date)?.substring(0, 4);
     const rating = (detail?.vote_average ?? item.vote_average);
     const trailerKey = detail ? findBestTrailer(detail.videos?.results || []) : null;
+    const airStatusInfo = detail ? getMediaAirStatusInfo({
+      media_type: item.media_type,
+      is_anime: isAnime,
+      air_status: detail.status,
+      next_air_date: detail.next_episode_to_air?.air_date,
+      next_episode_info: detail.next_episode_to_air ? `T${detail.next_episode_to_air.season_number} E${detail.next_episode_to_air.episode_number}` : null,
+      release_date: detail.release_date || item.release_date,
+    }) : null;
 
     return (
       <View style={[styles.card, isExpanded && styles.cardExpanded]}>
@@ -355,6 +374,26 @@ export default function SearchScreen() {
               </View>
             ) : detail ? (
               <View style={styles.detailContent}>
+                {/* Air Status / Next Episode Banner */}
+                {airStatusInfo && (
+                  <View style={[
+                    styles.airStatusTag,
+                    airStatusInfo.badgeStyle === 'ended' && styles.airStatusTagEnded,
+                    airStatusInfo.badgeStyle === 'scheduled' && styles.airStatusTagScheduled,
+                    airStatusInfo.badgeStyle === 'ongoing' && styles.airStatusTagOngoing,
+                  ]}>
+                    <Text style={styles.airStatusTagIcon}>{airStatusInfo.icon}</Text>
+                    <Text style={[
+                      styles.airStatusTagText,
+                      airStatusInfo.badgeStyle === 'ended' && styles.airStatusTextEnded,
+                      airStatusInfo.badgeStyle === 'scheduled' && styles.airStatusTextScheduled,
+                      airStatusInfo.badgeStyle === 'ongoing' && styles.airStatusTextOngoing,
+                    ]}>
+                      {airStatusInfo.label}
+                    </Text>
+                  </View>
+                )}
+
                 {/* Extra Metadata Stats */}
                 <View style={styles.detailStatsContainer}>
                   {item.media_type === 'tv' && (
@@ -937,6 +976,48 @@ const styles = StyleSheet.create({
   },
   detailContent: {
     marginBottom: 12,
+  },
+  airStatusTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 10,
+    backgroundColor: '#f1f5f9',
+  },
+  airStatusTagEnded: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  airStatusTagScheduled: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  airStatusTagOngoing: {
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  airStatusTagIcon: {
+    fontSize: 13,
+    marginRight: 6,
+  },
+  airStatusTagText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  airStatusTextEnded: {
+    color: '#047857',
+  },
+  airStatusTextScheduled: {
+    color: '#1d4ed8',
+  },
+  airStatusTextOngoing: {
+    color: '#b45309',
   },
   detailStatsContainer: {
     flexDirection: 'row',
