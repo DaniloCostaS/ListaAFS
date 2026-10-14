@@ -56,10 +56,45 @@ export const useMediaDetails = (tmdb_id: number) => {
     }
   };
 
+  const toggleSeasonEpisodes = async (season_number: number, episode_numbers: number[], watched: boolean) => {
+    if (!tmdb_id || isNaN(tmdb_id) || season_number == null || !episode_numbers || episode_numbers.length === 0) {
+      console.warn('Invalid season episode data:', { tmdb_id, season_number, episode_numbers });
+      return;
+    }
+
+    try {
+      const db = await getDb();
+      const now = Date.now();
+      const watchedInt = watched ? 1 : 0;
+
+      await db.withTransactionAsync(async () => {
+        for (const epNum of episode_numbers) {
+          await db.runAsync(
+            `INSERT OR REPLACE INTO sync_episodes_queue (tmdb_id, season_number, episode_number, watched, updated_at, sync_pending) 
+             VALUES (?, ?, ?, ?, ?, 1)`,
+            [
+              Number(tmdb_id),
+              Number(season_number),
+              Number(epNum),
+              watchedInt,
+              now
+            ]
+          );
+        }
+      });
+
+      await loadEpisodes();
+      runSync();
+    } catch (e) {
+      console.error('Error toggling season episodes:', e);
+    }
+  };
+
   return {
     episodes,
     loading,
     loadEpisodes,
     toggleEpisode,
+    toggleSeasonEpisodes,
   };
 };

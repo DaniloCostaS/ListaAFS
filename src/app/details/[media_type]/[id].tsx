@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, ScrollView, Image, ActivityIndicator, TouchableOpacity, Switch } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { getMediaDetails, getSeasonDetails, TMDBMediaDetail } from '../../../services/tmdb';
@@ -18,12 +18,13 @@ export default function DetailsScreen() {
   const [seasonData, setSeasonData] = useState<any>(null);
   const [loadingSeason, setLoadingSeason] = useState(false);
   const [hideWatched, setHideWatched] = useState(false);
+  const hasAutoSelectedSeasonRef = useRef(false);
 
   // For overall media status (Movies)
   const [overallStatus, setOverallStatus] = useState<string | null>(null);
   const { addOrUpdateMedia } = useMediaList();
 
-  const { episodes, loadEpisodes, toggleEpisode } = useMediaDetails(tmdb_id);
+  const { episodes, loadEpisodes, toggleEpisode, toggleSeasonEpisodes } = useMediaDetails(tmdb_id);
 
   // Initial Data Load
   useEffect(() => {
@@ -56,8 +57,10 @@ export default function DetailsScreen() {
     loadEpisodes();
   }, [media_type, tmdb_id, loadEpisodes]);
 
-  // Intelligence: Auto-select last watched season
+  // Intelligence: Auto-select last watched season ONLY ONCE on initial load
   useEffect(() => {
+    if (hasAutoSelectedSeasonRef.current) return;
+
     if (episodes.length > 0 && details?.seasons) {
       // Find the highest watched episode
       const watchedEps = episodes.filter(e => Boolean(e.watched));
@@ -69,14 +72,11 @@ export default function DetailsScreen() {
         });
         
         const lastWatchedSeason = watchedEps[0].season_number;
-        
-        // Let's see if there are more episodes in that season, or if they finished it.
-        // For MVP intelligence, just load the season of the last watched episode.
-        // We only auto-select once on load.
         setSelectedSeason(lastWatchedSeason);
       }
+      hasAutoSelectedSeasonRef.current = true;
     }
-  }, [episodes.length, details]); // Only depend on length to run mostly on mount/sync
+  }, [episodes, details]);
 
   // Fetch season specific details when selectedSeason changes
   useEffect(() => {
@@ -100,6 +100,24 @@ export default function DetailsScreen() {
     const newStatus = overallStatus === 'completed' ? 'watching' : 'completed';
     await addOrUpdateMedia(tmdb_id, 'movie', newStatus);
     setOverallStatus(newStatus);
+  };
+
+  const seasonEpisodes: any[] = useMemo(() => {
+    return seasonData?.episodes || [];
+  }, [seasonData]);
+
+  const watchedEpisodesCountInSeason = useMemo(() => {
+    return seasonEpisodes.filter((ep: any) =>
+      Boolean(episodes.find(e => e.season_number === selectedSeason && e.episode_number === ep.episode_number)?.watched)
+    ).length;
+  }, [seasonEpisodes, episodes, selectedSeason]);
+
+  const allSeasonEpisodesWatched = seasonEpisodes.length > 0 && watchedEpisodesCountInSeason === seasonEpisodes.length;
+
+  const handleToggleSeason = async () => {
+    if (seasonEpisodes.length === 0) return;
+    const epNumbers = seasonEpisodes.map((ep: any) => ep.episode_number);
+    await toggleSeasonEpisodes(selectedSeason, epNumbers, !allSeasonEpisodesWatched);
   };
 
   if (loading || !details) {
@@ -162,7 +180,10 @@ export default function DetailsScreen() {
                   <TouchableOpacity
                     key={season.id}
                     style={[styles.seasonChip, isSelected && styles.seasonChipActive]}
-                    onPress={() => setSelectedSeason(season.season_number)}
+                    onPress={() => {
+                      hasAutoSelectedSeasonRef.current = true;
+                      setSelectedSeason(season.season_number);
+                    }}
                   >
                     <Text style={[styles.seasonChipText, isSelected && styles.seasonChipTextActive]}>
                       Temporada {season.season_number}
@@ -171,6 +192,37 @@ export default function DetailsScreen() {
                 );
               })}
             </ScrollView>
+
+            {/* Season Batch Action & Progress Bar */}
+            {!loadingSeason && seasonEpisodes.length > 0 && (
+              <View style={styles.seasonActionBar}>
+                <View style={styles.seasonProgressInfo}>
+                  <Text style={styles.seasonProgressText}>
+                    {watchedEpisodesCountInSeason} de {seasonEpisodes.length} assistidos
+                  </Text>
+                  {watchedEpisodesCountInSeason === seasonEpisodes.length && (
+                    <Text style={styles.seasonCompletedBadge}>✓ Concluída</Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.seasonBatchBtn,
+                    allSeasonEpisodesWatched && styles.seasonBatchBtnWatched,
+                  ]}
+                  onPress={handleToggleSeason}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.seasonBatchBtnText,
+                      allSeasonEpisodesWatched && styles.seasonBatchBtnTextWatched,
+                    ]}
+                  >
+                    {allSeasonEpisodesWatched ? 'Desmarcar temporada' : 'Marcar temporada toda'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Episode List for Selected Season */}
             <View style={styles.episodesContainer}>
@@ -391,5 +443,53 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  seasonActionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  seasonProgressInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  seasonProgressText: {
+    fontSize: 13,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  seasonCompletedBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#34C759',
+    backgroundColor: '#e8f8ed',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  seasonBatchBtn: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  seasonBatchBtnWatched: {
+    backgroundColor: '#e0e0e0',
+  },
+  seasonBatchBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  seasonBatchBtnTextWatched: {
+    color: '#555',
   },
 });
