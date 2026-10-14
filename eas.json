@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 15.0.0"
+    "version": ">= 15.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -11,6 +12,11 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ctgplwtcisudcfuzhmwm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0Z3Bsd3RjaXN1ZGNmdXpobXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQzMjUsImV4cCI6MjEwNzA0MDMyNX0.c8V_NNt0L3p3oc7V-dWA1qNvOuIkg1KnYIA6eO5rJNw",
+        "EXPO_PUBLIC_TMDB_API_KEY": "ecd274ecc2f8f3518ea7cc34100134ea"
       }
     },
     "production": {
