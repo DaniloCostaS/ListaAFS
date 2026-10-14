@@ -27,7 +27,9 @@ export const getDb = async (): Promise<SQLite.SQLiteDatabase> => {
           'ALTER TABLE media_cache ADD COLUMN episode_count INTEGER DEFAULT 0;',
           'ALTER TABLE media_cache ADD COLUMN air_status TEXT;',
           'ALTER TABLE media_cache ADD COLUMN next_air_date TEXT;',
-          'ALTER TABLE media_cache ADD COLUMN next_episode_info TEXT;'
+          'ALTER TABLE media_cache ADD COLUMN next_episode_info TEXT;',
+          'ALTER TABLE sync_queue ADD COLUMN user_rating REAL;',
+          'ALTER TABLE sync_queue ADD COLUMN user_notes TEXT;'
         ];
         for (const sql of migrations) {
           try {

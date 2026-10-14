@@ -7,6 +7,8 @@ export const SQLITE_SCHEMA = `
     status TEXT NOT NULL CHECK (status IN ('watching', 'completed', 'plan_to_watch')),
     updated_at INTEGER NOT NULL, -- Storing as Unix timestamp for SQLite ease
     sync_pending INTEGER NOT NULL DEFAULT 0, -- 0 for false, 1 for true
+    user_rating REAL,
+    user_notes TEXT,
     PRIMARY KEY (tmdb_id, media_type)
   );
 
@@ -50,6 +52,8 @@ export interface SyncQueueItem {
   status: MediaStatus;
   updated_at: number;
   sync_pending: boolean;
+  user_rating?: number | null;
+  user_notes?: string | null;
 }
 
 export interface MediaCacheItem {

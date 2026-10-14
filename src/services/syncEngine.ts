@@ -14,7 +14,15 @@ export const syncEngine = {
       }
 
       // 1. Push local changes to Supabase (Upsert)
-      const pendingItems = await db.getAllAsync<{ tmdb_id: number; media_type: MediaType; status: MediaStatus; updated_at: number; sync_pending: number }>(
+      const pendingItems = await db.getAllAsync<{ 
+        tmdb_id: number; 
+        media_type: MediaType; 
+        status: MediaStatus; 
+        user_rating?: number | null;
+        user_notes?: string | null;
+        updated_at: number; 
+        sync_pending: number 
+      }>(
         'SELECT * FROM sync_queue WHERE sync_pending = $pending',
         { $pending: 1 }
       );
@@ -25,12 +33,29 @@ export const syncEngine = {
           tmdb_id: item.tmdb_id,
           media_type: item.media_type,
           status: item.status,
+          user_rating: item.user_rating ?? null,
+          user_notes: item.user_notes ?? null,
           updated_at: new Date(item.updated_at).toISOString(),
         }));
 
-        const { error: upsertError } = await supabase
+        let { error: upsertError } = await supabase
           .from('user_media')
           .upsert(payload, { onConflict: 'user_id, tmdb_id, media_type' });
+
+        // If Supabase table does not yet have user_rating / user_notes columns, fallback to base payload
+        if (upsertError && (upsertError.message?.includes('column') || (upsertError as any).code === '42703')) {
+          const fallbackPayload = pendingItems.map(item => ({
+            user_id: user.id,
+            tmdb_id: item.tmdb_id,
+            media_type: item.media_type,
+            status: item.status,
+            updated_at: new Date(item.updated_at).toISOString(),
+          }));
+          const fallbackResult = await supabase
+            .from('user_media')
+            .upsert(fallbackPayload, { onConflict: 'user_id, tmdb_id, media_type' });
+          upsertError = fallbackResult.error;
+        }
 
         if (upsertError) throw upsertError;
 
@@ -77,7 +102,7 @@ export const syncEngine = {
       }
 
       // 2. Pull remote changes from Supabase
-      // Conflict resolution: latest updated_at wins
+      // Conflict resolution: latest updated_at wins, but preserve local ratings/notes if remote is null
       const { data: remoteData, error: pullError } = await supabase
         .from('user_media')
         .select('*')
@@ -89,19 +114,27 @@ export const syncEngine = {
         for (const remote of remoteData) {
           const remoteTime = new Date(remote.updated_at).getTime();
           
-          const localItem = await db.getFirstAsync<{ updated_at: number }>(
-            'SELECT updated_at FROM sync_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+          const localItem = await db.getFirstAsync<{ updated_at: number; user_rating?: number | null; user_notes?: string | null }>(
+            'SELECT updated_at, user_rating, user_notes FROM sync_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
             { $tmdb_id: Number(remote.tmdb_id), $media_type: String(remote.media_type) }
           );
 
           if (!localItem || localItem.updated_at < remoteTime) {
             await db.runAsync(
-              `INSERT OR REPLACE INTO sync_queue (tmdb_id, media_type, status, updated_at, sync_pending) 
-               VALUES ($tmdb_id, $media_type, $status, $updated_at, 0)`,
+              `INSERT INTO sync_queue (tmdb_id, media_type, status, user_rating, user_notes, updated_at, sync_pending) 
+               VALUES ($tmdb_id, $media_type, $status, $user_rating, $user_notes, $updated_at, 0)
+               ON CONFLICT(tmdb_id, media_type) DO UPDATE SET
+                 status = excluded.status,
+                 user_rating = COALESCE(excluded.user_rating, sync_queue.user_rating),
+                 user_notes = COALESCE(excluded.user_notes, sync_queue.user_notes),
+                 updated_at = excluded.updated_at,
+                 sync_pending = 0`,
               { 
                 $tmdb_id: Number(remote.tmdb_id), 
                 $media_type: String(remote.media_type), 
                 $status: String(remote.status), 
+                $user_rating: remote.user_rating ?? null,
+                $user_notes: remote.user_notes ?? null,
                 $updated_at: Number(remoteTime) 
               }
             );

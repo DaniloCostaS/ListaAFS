@@ -248,6 +248,31 @@ export const getSeasonDetails = async (tvId: number, seasonNumber: number) => {
   return fetchFromTMDB(`/tv/${tvId}/season/${seasonNumber}`);
 };
 
+export interface WatchProvider {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+  display_priority?: number;
+}
+
+export interface WatchProvidersData {
+  link?: string;
+  flatrate?: WatchProvider[];
+  rent?: WatchProvider[];
+  buy?: WatchProvider[];
+  free?: WatchProvider[];
+}
+
+export const getWatchProviders = async (mediaType: 'movie' | 'tv', id: number): Promise<WatchProvidersData | null> => {
+  try {
+    const data = await fetchFromTMDB(`/${mediaType}/${id}/watch/providers`);
+    return data.results?.BR || null;
+  } catch (err) {
+    console.warn(`Failed to fetch watch providers for ${mediaType} ${id}:`, err);
+    return null;
+  }
+};
+
 export interface GenreOption {
   id: string;
   name: string;

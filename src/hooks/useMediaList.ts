@@ -23,6 +23,8 @@ export interface MediaListItem {
   next_air_date?: string | null;
   next_episode_info?: string | null;
   watched_episodes_count?: number;
+  user_rating?: number | null;
+  user_notes?: string | null;
 }
 
 export interface MediaMetadataInput {
@@ -193,8 +195,12 @@ export const useMediaList = () => {
       const now = Date.now();
       
       await db.runAsync(
-        `INSERT OR REPLACE INTO sync_queue (tmdb_id, media_type, status, updated_at, sync_pending) 
-         VALUES ($tmdb_id, $media_type, $status, $updated_at, 1)`,
+        `INSERT INTO sync_queue (tmdb_id, media_type, status, updated_at, sync_pending) 
+         VALUES ($tmdb_id, $media_type, $status, $updated_at, 1)
+         ON CONFLICT (tmdb_id, media_type) DO UPDATE SET
+           status = excluded.status,
+           updated_at = excluded.updated_at,
+           sync_pending = 1`,
         {
           $tmdb_id: Number(tmdb_id),
           $media_type: String(media_type),
@@ -239,11 +245,45 @@ export const useMediaList = () => {
     }
   };
 
+  const updateUserReview = async (
+    tmdb_id: number,
+    media_type: MediaType,
+    user_rating: number | null,
+    user_notes: string | null
+  ) => {
+    try {
+      const db = await getDb();
+      const now = Date.now();
+      await db.runAsync(
+        `INSERT INTO sync_queue (tmdb_id, media_type, status, user_rating, user_notes, updated_at, sync_pending)
+         VALUES ($tmdb_id, $media_type, 'plan_to_watch', $rating, $notes, $now, 1)
+         ON CONFLICT (tmdb_id, media_type) DO UPDATE SET
+           user_rating = excluded.user_rating,
+           user_notes = excluded.user_notes,
+           updated_at = excluded.updated_at,
+           sync_pending = 1`,
+        {
+          $rating: user_rating ?? null,
+          $notes: user_notes ?? null,
+          $now: Number(now),
+          $tmdb_id: Number(tmdb_id),
+          $media_type: String(media_type),
+        }
+      );
+      await loadMedia();
+      runSync().catch((err) => console.error('Background sync failed:', err));
+    } catch (e) {
+      console.error('Error updating user review:', e);
+      throw e;
+    }
+  };
+
   return {
     data,
     loading,
     error,
     loadMedia,
     addOrUpdateMedia,
+    updateUserReview,
   };
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -9,15 +9,19 @@ import {
   TouchableOpacity, 
   Switch, 
   Modal, 
-  Linking 
+  Linking,
+  Share,
+  TextInput
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { 
   getMediaDetails, 
   getSeasonDetails, 
   findBestTrailer, 
   checkIfAnime,
   getMediaAirStatusInfo,
+  getWatchProviders,
+  WatchProvidersData,
   TMDBMediaDetail 
 } from '../../../services/tmdb';
 import { useMediaDetails } from '../../../hooks/useMediaDetails';
@@ -41,11 +45,42 @@ export default function DetailsScreen() {
   // For Episode detail modal
   const [selectedEpisodeForModal, setSelectedEpisodeForModal] = useState<any | null>(null);
 
-  // For overall media status (Movies)
+  // For overall media status & reviews
   const [overallStatus, setOverallStatus] = useState<string | null>(null);
-  const { addOrUpdateMedia } = useMediaList();
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [userNotes, setUserNotes] = useState<string>('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesSavedSuccess, setNotesSavedSuccess] = useState(false);
 
+  // Watch providers in Brazil
+  const [watchProviders, setWatchProviders] = useState<WatchProvidersData | null>(null);
+
+  const { addOrUpdateMedia, updateUserReview } = useMediaList();
   const { episodes, loadEpisodes, toggleEpisode, toggleSeasonEpisodes } = useMediaDetails(tmdb_id);
+
+  const loadLocalStatusAndReview = useCallback(async () => {
+    if (!tmdb_id || isNaN(tmdb_id) || !media_type) return;
+    try {
+      const db = await getDb();
+      const localItem = await db.getFirstAsync<{ status: string; user_rating?: number | null; user_notes?: string | null }>(
+        'SELECT status, user_rating, user_notes FROM sync_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+        { $tmdb_id: Number(tmdb_id), $media_type: String(media_type) }
+      );
+      if (localItem) {
+        setOverallStatus(localItem.status);
+        setUserRating(localItem.user_rating ?? null);
+        setUserNotes(localItem.user_notes ?? '');
+      }
+    } catch (e) {
+      console.error('Error loading local status and review:', e);
+    }
+  }, [tmdb_id, media_type]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLocalStatusAndReview();
+    }, [loadLocalStatusAndReview])
+  );
 
   // Initial Data Load
   useEffect(() => {
@@ -53,21 +88,13 @@ export default function DetailsScreen() {
 
     const fetchInitialData = async () => {
       try {
-        const [tmdbData, db] = await Promise.all([
+        const [tmdbData, providersData] = await Promise.all([
           getMediaDetails(media_type as 'movie' | 'tv', tmdb_id),
-          getDb()
+          getWatchProviders(media_type as 'movie' | 'tv', tmdb_id),
         ]);
         setDetails(tmdbData);
-
-        // Fetch local status
-        const localItem = await db.getFirstAsync<{ status: string }>(
-          'SELECT status FROM sync_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
-          { $tmdb_id: Number(tmdb_id), $media_type: String(media_type) }
-        );
-        if (localItem) {
-          setOverallStatus(localItem.status);
-        }
-
+        setWatchProviders(providersData);
+        await loadLocalStatusAndReview();
       } catch (err) {
         console.error(err);
       } finally {
@@ -76,7 +103,7 @@ export default function DetailsScreen() {
     };
     fetchInitialData();
     loadEpisodes();
-  }, [media_type, tmdb_id, loadEpisodes]);
+  }, [media_type, tmdb_id, loadEpisodes, loadLocalStatusAndReview]);
 
   // Intelligence: Auto-select last watched season ONLY ONCE on initial load
   useEffect(() => {
@@ -199,6 +226,53 @@ export default function DetailsScreen() {
       .catch((err) => console.error('Failed to open trailer:', err));
   };
 
+  const handleSetRating = async (rating: number) => {
+    const nextRating = userRating === rating ? null : rating;
+    setUserRating(nextRating);
+    try {
+      await updateUserReview(tmdb_id, media_type as 'movie' | 'tv', nextRating, userNotes);
+    } catch (e) {
+      console.error('Failed to update rating:', e);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await updateUserReview(tmdb_id, media_type as 'movie' | 'tv', userRating, userNotes);
+      setNotesSavedSuccess(true);
+      setTimeout(() => setNotesSavedSuccess(false), 2500);
+    } catch (e) {
+      console.error('Failed to update notes:', e);
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const handleShareMedia = async () => {
+    if (!details) return;
+    try {
+      const flatrate = watchProviders?.flatrate?.map(p => p.provider_name).join(', ');
+      let text = `🍿 ${title}\n`;
+      text += isAnime ? '🎌 Anime' : media_type === 'movie' ? '🎬 Filme' : '📺 Série';
+      if (userRating) text += `\n⭐ Minha Nota: ${userRating}/10`;
+      if (media_type === 'tv' && totalShowEpisodes > 0) {
+        text += `\n📺 Progresso: ${totalWatchedEpisodes}/${totalShowEpisodes} episódios (${totalProgressPercent}%)`;
+      }
+      if (flatrate) {
+        text += `\n📡 Onde Assistir: ${flatrate}`;
+      }
+      text += `\n\nAcompanhado pelo app ListaAFS!`;
+
+      await Share.share({
+        title: title || 'ListaAFS',
+        message: text,
+      });
+    } catch (err) {
+      console.error('Error sharing:', err);
+    }
+  };
+
   return (
     <View style={styles.screenWrapper}>
       <ScrollView style={styles.container}>
@@ -276,17 +350,150 @@ export default function DetailsScreen() {
           )}
 
           <Text style={styles.overview}>{details.overview || 'Sem sinopse disponível.'}</Text>
+
+          {/* Watch Providers Section (Onde Assistir no Brasil) */}
+          <View style={styles.providersCard}>
+            <View style={styles.providersHeaderRow}>
+              <Text style={styles.providersCardTitle}>📡 Onde Assistir no Brasil</Text>
+              {watchProviders?.link && (
+                <TouchableOpacity onPress={() => Linking.openURL(watchProviders.link!)}>
+                  <Text style={styles.justWatchLink}>Ver opções ↗</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {watchProviders?.flatrate && watchProviders.flatrate.length > 0 ? (
+              <View style={styles.providersSubSection}>
+                <Text style={styles.providersSubLabel}>Streaming por Assinatura:</Text>
+                <View style={styles.providersGrid}>
+                  {watchProviders.flatrate.map((prov) => (
+                    <View key={prov.provider_id} style={styles.providerItem}>
+                      <Image 
+                        source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                        style={styles.providerLogo} 
+                      />
+                      <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : watchProviders?.free && watchProviders.free.length > 0 ? (
+              <View style={styles.providersSubSection}>
+                <Text style={styles.providersSubLabel}>Gratuito com Anúncios:</Text>
+                <View style={styles.providersGrid}>
+                  {watchProviders.free.map((prov) => (
+                    <View key={prov.provider_id} style={styles.providerItem}>
+                      <Image 
+                        source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                        style={styles.providerLogo} 
+                      />
+                      <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : watchProviders?.rent && watchProviders.rent.length > 0 ? (
+              <View style={styles.providersSubSection}>
+                <Text style={styles.providersSubLabel}>Aluguel Digital:</Text>
+                <View style={styles.providersGrid}>
+                  {watchProviders.rent.slice(0, 4).map((prov) => (
+                    <View key={prov.provider_id} style={styles.providerItem}>
+                      <Image 
+                        source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                        style={styles.providerLogo} 
+                      />
+                      <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.noProvidersText}>
+                Nenhum serviço de streaming oficial reportado no Brasil atualmente.
+              </Text>
+            )}
+          </View>
+
+          {/* User Review & Rating Card */}
+          <View style={styles.userReviewCard}>
+            <View style={styles.userReviewHeader}>
+              <Text style={styles.userReviewTitle}>⭐ Minha Avaliação</Text>
+              {userRating ? (
+                <Text style={styles.userRatingBadge}>
+                  {userRating}/10 {userRating >= 9 ? '🏆 Obra-prima' : userRating >= 7 ? '👍 Muito bom' : userRating >= 5 ? '👌 Regular' : '👎 Não curti'}
+                </Text>
+              ) : (
+                <Text style={styles.userRatingHint}>Toque para avaliar</Text>
+              )}
+            </View>
+
+            {/* 10 Stars selector */}
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                const isFilled = userRating != null && userRating >= star;
+                return (
+                  <TouchableOpacity
+                    key={star}
+                    style={styles.starTouchArea}
+                    onPress={() => handleSetRating(star)}
+                    hitSlop={{ top: 6, bottom: 6, left: 3, right: 3 }}
+                  >
+                    <Text style={[styles.starIcon, isFilled && styles.starIconFilled]}>
+                      ★
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Notes field */}
+            <View style={styles.notesSection}>
+              <Text style={styles.notesLabel}>Minhas Anotações Privadas:</Text>
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Escreva seus pensamentos sobre esta obra..."
+                placeholderTextColor="#999"
+                value={userNotes}
+                onChangeText={setUserNotes}
+                multiline
+                numberOfLines={3}
+              />
+              <View style={styles.notesActionRow}>
+                {notesSavedSuccess && (
+                  <Text style={styles.notesSavedMessage}>✓ Anotação salva com sucesso!</Text>
+                )}
+                <TouchableOpacity 
+                  style={[styles.notesSaveBtn, savingNotes && styles.notesSaveBtnDisabled]}
+                  onPress={handleSaveNotes}
+                  disabled={savingNotes}
+                >
+                  <Text style={styles.notesSaveBtnText}>
+                    {savingNotes ? 'Salvando...' : 'Salvar Anotação'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
           
-          {/* Trailer Button if available */}
-          {trailerKey && (
+          {/* Action Buttons: Trailer & Native Share */}
+          <View style={styles.actionButtonsRow}>
+            {trailerKey && (
+              <TouchableOpacity 
+                style={styles.trailerActionBtn}
+                onPress={handleOpenTrailer}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.trailerActionBtnText}>▶ Ver Trailer</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
-              style={styles.trailerActionBtn}
-              onPress={handleOpenTrailer}
+              style={[styles.shareActionBtn, !trailerKey && { flex: 1 }]}
+              onPress={handleShareMedia}
               activeOpacity={0.8}
             >
-              <Text style={styles.trailerActionBtnText}>▶ Assistir Trailer Oficial no YouTube</Text>
+              <Text style={styles.shareActionBtnText}>📤 Compartilhar</Text>
             </TouchableOpacity>
-          )}
+          </View>
 
           {/* MOVIE ACTIONS */}
           {media_type === 'movie' && (
@@ -742,23 +949,206 @@ const styles = StyleSheet.create({
     color: '#444',
     lineHeight: 22,
   },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
   trailerActionBtn: {
-    marginTop: 16,
+    flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: '#FF0000',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#FF0000',
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
   },
   trailerActionBtnText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 13,
+  },
+  shareActionBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#007AFF',
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  shareActionBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  providersCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  providersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  providersCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  justWatchLink: {
+    fontSize: 11,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  providersSubSection: {
+    marginBottom: 6,
+  },
+  providersSubLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  providersGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  providerItem: {
+    alignItems: 'center',
+    width: 55,
+  },
+  providerLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#cbd5e1',
+    marginBottom: 4,
+  },
+  providerName: {
+    fontSize: 9,
+    color: '#475569',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  noProvidersText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontStyle: 'italic',
+  },
+  userReviewCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  userReviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  userReviewTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  userRatingBadge: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#d97706',
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  userRatingHint: {
+    fontSize: 11,
+    color: '#94a3b8',
+  },
+  starsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    marginBottom: 8,
+  },
+  starTouchArea: {
+    padding: 2,
+  },
+  starIcon: {
+    fontSize: 24,
+    color: '#cbd5e1',
+  },
+  starIconFilled: {
+    color: '#f59e0b',
+  },
+  notesSection: {
+    marginTop: 4,
+  },
+  notesLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  notesInput: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+    fontSize: 12,
+    color: '#1e293b',
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  notesActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  notesSavedMessage: {
+    fontSize: 11,
+    color: '#16a34a',
+    fontWeight: '600',
+  },
+  notesSaveBtn: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: 'flex-end',
+    marginLeft: 'auto',
+  },
+  notesSaveBtnDisabled: {
+    opacity: 0.6,
+  },
+  notesSaveBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   movieBtn: {
     marginTop: 16,

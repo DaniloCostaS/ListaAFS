@@ -1,30 +1,30 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  FlatList, 
-  TouchableOpacity, 
-  ActivityIndicator, 
-  Image, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
   Linking,
-  ScrollView 
+  ScrollView
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { 
-  searchMulti, 
-  getMediaDetails, 
-  checkIfAnime, 
-  findBestTrailer, 
+import {
+  searchMulti,
+  getMediaDetails,
+  checkIfAnime,
+  findBestTrailer,
   discoverMedia,
   COMMON_GENRES,
   RATING_OPTIONS,
   YEAR_OPTIONS,
   SORT_OPTIONS,
-  TMDBMultiSearchResult, 
+  TMDBMultiSearchResult,
   TMDBMediaDetail,
-  getMediaAirStatusInfo 
+  getMediaAirStatusInfo
 } from '../services/tmdb';
 import { useMediaList } from '../hooks/useMediaList';
 import { getDb } from '../database/useDatabase';
@@ -106,7 +106,7 @@ export default function SearchScreen() {
         if (selectedGenreId !== 'all') {
           const gObj = COMMON_GENRES.find(g => g.id === selectedGenreId);
           if (gObj) {
-            filtered = filtered.filter(item => 
+            filtered = filtered.filter(item =>
               Boolean(item.genre_ids && (item.genre_ids.includes(gObj.movieGenreId) || item.genre_ids.includes(gObj.tvGenreId)))
             );
           }
@@ -223,8 +223,8 @@ export default function SearchScreen() {
       const voteAverage = detail?.vote_average ?? item.vote_average ?? null;
       const airStatus = detail?.status || null;
       const nextAirDate = detail?.next_episode_to_air?.air_date || null;
-      const nextEpisodeInfo = detail?.next_episode_to_air 
-        ? `T${detail.next_episode_to_air.season_number} E${detail.next_episode_to_air.episode_number}` 
+      const nextEpisodeInfo = detail?.next_episode_to_air
+        ? `T${detail.next_episode_to_air.season_number} E${detail.next_episode_to_air.episode_number}`
         : null;
 
       await addOrUpdateMedia(item.id, item.media_type, 'plan_to_watch', {
@@ -297,14 +297,14 @@ export default function SearchScreen() {
     const isAlreadyInList = existingIds.has(key);
 
     const title = item.title || item.name || 'Sem Título';
-    const imageUrl = item.poster_path 
-      ? `https://image.tmdb.org/t/p/w200${item.poster_path}` 
+    const imageUrl = item.poster_path
+      ? `https://image.tmdb.org/t/p/w200${item.poster_path}`
       : null;
 
     const isAnime = checkIfAnime(detail || item);
     const categoryBadgeText = isAnime ? '🎌 ANIME' : item.media_type === 'movie' ? '🎬 FILME' : '📺 SÉRIE';
     const categoryBadgeStyle = isAnime ? styles.badgeAnime : item.media_type === 'movie' ? styles.badgeMovie : styles.badgeTv;
-    
+
     const year = (item.release_date || item.first_air_date || detail?.release_date || detail?.first_air_date)?.substring(0, 4);
     const rating = (detail?.vote_average ?? item.vote_average);
     const trailerKey = detail ? findBestTrailer(detail.videos?.results || []) : null;
@@ -320,8 +320,8 @@ export default function SearchScreen() {
     return (
       <View style={[styles.card, isExpanded && styles.cardExpanded]}>
         {/* Card Header Area - Tappable to expand */}
-        <TouchableOpacity 
-          style={styles.cardHeaderRow} 
+        <TouchableOpacity
+          style={styles.cardHeaderRow}
           onPress={() => toggleExpand(item)}
           activeOpacity={0.7}
         >
@@ -437,12 +437,12 @@ export default function SearchScreen() {
                 {trailerKey ? (
                   <View style={styles.trailerContainer}>
                     <Text style={styles.trailerHeader}>🎬 Trailer Oficial</Text>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.trailerButton}
                       onPress={() => handleOpenTrailer(trailerKey)}
                       activeOpacity={0.8}
                     >
-                      <Image 
+                      <Image
                         source={{ uri: `https://img.youtube.com/vi/${trailerKey}/hqdefault.jpg` }}
                         style={styles.trailerThumbnail}
                       />
@@ -462,12 +462,12 @@ export default function SearchScreen() {
 
             {/* Action Button: Add to List */}
             <View style={styles.actionContainer}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
-                  styles.addButton, 
+                  styles.addButton,
                   isAlreadyInList && styles.addButtonInList,
                   isAdding && styles.addButtonDisabled
-                ]} 
+                ]}
                 onPress={() => handleAdd(item)}
                 disabled={isAdding}
                 activeOpacity={0.7}
@@ -487,8 +487,8 @@ export default function SearchScreen() {
         {/* Collapsed quick add button */}
         {!isExpanded && (
           <View style={styles.cardFooter}>
-            <TouchableOpacity 
-              style={[styles.quickAddBtn, isAlreadyInList && styles.quickAddBtnInList]} 
+            <TouchableOpacity
+              style={[styles.quickAddBtn, isAlreadyInList && styles.quickAddBtnInList]}
               onPress={() => handleAdd(item)}
               disabled={isAdding}
             >
@@ -512,7 +512,7 @@ export default function SearchScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'Buscar & Explorar', headerBackTitle: 'Voltar' }} />
-      
+
       {/* Top Search Input Bar */}
       <View style={styles.searchBar}>
         <TextInput
@@ -553,13 +553,13 @@ export default function SearchScreen() {
 
       {/* Filter Control Header */}
       <View style={styles.filterControlBar}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.filterToggleBtn, showFilters && styles.filterToggleBtnActive]}
           onPress={() => setShowFilters(!showFilters)}
           activeOpacity={0.7}
         >
           <Text style={[styles.filterToggleText, showFilters && styles.filterToggleTextActive]}>
-            ⚙️ Filtros da Comunidade {activeFiltersCount > 0 ? `(${activeFiltersCount})` : ''} {showFilters ? '▴' : '▾'}
+            ⚙️ Filtros {activeFiltersCount > 0 ? `(${activeFiltersCount})` : ''} {showFilters ? '▴' : '▾'}
           </Text>
         </TouchableOpacity>
 
