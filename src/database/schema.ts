@@ -17,6 +17,11 @@ export const SQLITE_SCHEMA = `
     overview TEXT,
     poster_path TEXT,
     last_fetched_at INTEGER NOT NULL,
+    is_anime INTEGER DEFAULT 0,
+    release_date TEXT,
+    vote_average REAL,
+    season_count INTEGER DEFAULT 0,
+    trailer_key TEXT,
     PRIMARY KEY (tmdb_id, media_type)
   );
 
@@ -33,6 +38,7 @@ export const SQLITE_SCHEMA = `
 
 export type MediaType = 'movie' | 'tv';
 export type MediaStatus = 'watching' | 'completed' | 'plan_to_watch';
+export type MediaCategory = 'all' | 'movie' | 'tv' | 'anime';
 
 export interface SyncQueueItem {
   tmdb_id: number;
@@ -49,6 +55,11 @@ export interface MediaCacheItem {
   overview: string | null;
   poster_path: string | null;
   last_fetched_at: number;
+  is_anime?: number | null;
+  release_date?: string | null;
+  vote_average?: number | null;
+  season_count?: number | null;
+  trailer_key?: string | null;
 }
 
 export interface SyncEpisodeItem {

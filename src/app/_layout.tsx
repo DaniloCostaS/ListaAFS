@@ -13,7 +13,7 @@ export default function RootLayout() {
   useEffect(() => {
     // Basic startup initialization
     setInitialized(true);
-  }, []);
+  }, [setInitialized]);
 
   useEffect(() => {
     if (!isInitialized || !isReady) return;
@@ -31,7 +31,7 @@ export default function RootLayout() {
       // Redirect away from the sign-in page.
       router.replace('/');
     }
-  }, [session, isInitialized, isReady, segments]);
+  }, [session, isInitialized, isReady, segments, router]);
 
   if (!isInitialized || !isReady) {
     return (

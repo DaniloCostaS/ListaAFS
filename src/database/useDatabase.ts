@@ -16,6 +16,23 @@ export const getDb = async (): Promise<SQLite.SQLiteDatabase> => {
       try {
         const db = await SQLite.openDatabaseAsync('lista_afs.db');
         await db.execAsync(SQLITE_SCHEMA);
+
+        // Safe column migrations for existing databases
+        const migrations = [
+          'ALTER TABLE media_cache ADD COLUMN is_anime INTEGER DEFAULT 0;',
+          'ALTER TABLE media_cache ADD COLUMN release_date TEXT;',
+          'ALTER TABLE media_cache ADD COLUMN vote_average REAL;',
+          'ALTER TABLE media_cache ADD COLUMN season_count INTEGER DEFAULT 0;',
+          'ALTER TABLE media_cache ADD COLUMN trailer_key TEXT;'
+        ];
+        for (const sql of migrations) {
+          try {
+            await db.execAsync(sql);
+          } catch {
+            // Column already exists, safe to ignore
+          }
+        }
+
         dbInstance = db;
         return db;
       } catch (err) {

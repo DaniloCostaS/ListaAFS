@@ -1,6 +1,6 @@
 import { getDb } from '../database/useDatabase';
 import { supabase } from './supabase';
-import { getMediaDetails } from './tmdb';
+import { getMediaDetails, checkIfAnime, findBestTrailer } from './tmdb';
 import { MediaType, MediaStatus } from '../database/schema';
 
 export const syncEngine = {
@@ -151,7 +151,7 @@ export const syncEngine = {
         `SELECT q.tmdb_id, q.media_type 
          FROM sync_queue q 
          LEFT JOIN media_cache c ON q.tmdb_id = c.tmdb_id AND q.media_type = c.media_type 
-         WHERE c.tmdb_id IS NULL AND 1 = $pending`,
+         WHERE (c.tmdb_id IS NULL OR c.release_date IS NULL OR c.is_anime IS NULL) AND 1 = $pending`,
         { $pending: 1 }
       );
 
@@ -176,16 +176,26 @@ export const syncEngine = {
           if (!entry) continue;
           const { item, details } = entry;
           const title = details.title || details.name || '';
+          const isAnime = checkIfAnime(details);
+          const trailerKey = findBestTrailer(details.videos?.results || []);
+          const seasonCount = details.number_of_seasons || details.seasons?.filter(s => s.season_number > 0).length || 0;
+          const releaseDate = details.release_date || details.first_air_date || null;
+          const voteAverage = details.vote_average ?? null;
           
           await db.runAsync(
-            `INSERT OR REPLACE INTO media_cache (tmdb_id, media_type, title, overview, poster_path, last_fetched_at) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO media_cache (tmdb_id, media_type, title, overview, poster_path, is_anime, release_date, vote_average, season_count, trailer_key, last_fetched_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               Number(item.tmdb_id),
               String(item.media_type),
               String(title),
               details.overview ? String(details.overview) : null,
               details.poster_path ? String(details.poster_path) : null,
+              isAnime ? 1 : 0,
+              releaseDate,
+              voteAverage,
+              seasonCount,
+              trailerKey,
               Number(Date.now())
             ]
           );
