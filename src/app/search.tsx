@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,12 +19,15 @@ import {
   findBestTrailer,
   discoverMedia,
   COMMON_GENRES,
+  COMMON_WATCH_PROVIDERS,
   RATING_OPTIONS,
   YEAR_OPTIONS,
   SORT_OPTIONS,
   TMDBMultiSearchResult,
   TMDBMediaDetail,
-  getMediaAirStatusInfo
+  getMediaAirStatusInfo,
+  getWatchProviders,
+  WatchProvidersData,
 } from '../services/tmdb';
 import { useMediaList } from '../hooks/useMediaList';
 import { getDb } from '../database/useDatabase';
@@ -36,13 +39,20 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [detailsCache, setDetailsCache] = useState<Record<string, TMDBMediaDetail>>({});
+  const detailsCacheRef = useRef<Record<string, TMDBMediaDetail>>({});
   const [loadingDetailsKey, setLoadingDetailsKey] = useState<string | null>(null);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [existingIds, setExistingIds] = useState<Set<string>>(new Set());
 
+  const updateDetailsCache = useCallback((key: string, detail: TMDBMediaDetail) => {
+    detailsCacheRef.current[key] = detail;
+    setDetailsCache(prev => ({ ...prev, [key]: detail }));
+  }, []);
+
   // Filter States
   const [selectedCategory, setSelectedCategory] = useState<MediaCategory>('all');
   const [selectedGenreId, setSelectedGenreId] = useState<string>('all');
+  const [selectedWatchProviderId, setSelectedWatchProviderId] = useState<string>('all');
   const [selectedMinRating, setSelectedMinRating] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedSortBy, setSelectedSortBy] = useState<'popularity.desc' | 'vote_average.desc' | 'release_date.desc'>('popularity.desc');
@@ -71,15 +81,17 @@ export default function SearchScreen() {
     let count = 0;
     if (selectedCategory !== 'all') count++;
     if (selectedGenreId !== 'all') count++;
+    if (selectedWatchProviderId !== 'all') count++;
     if (selectedMinRating !== null) count++;
     if (selectedYear !== 'all') count++;
     if (selectedSortBy !== 'popularity.desc') count++;
     return count;
-  }, [selectedCategory, selectedGenreId, selectedMinRating, selectedYear, selectedSortBy]);
+  }, [selectedCategory, selectedGenreId, selectedWatchProviderId, selectedMinRating, selectedYear, selectedSortBy]);
 
   const handleResetFilters = () => {
     setSelectedCategory('all');
     setSelectedGenreId('all');
+    setSelectedWatchProviderId('all');
     setSelectedMinRating(null);
     setSelectedYear('all');
     setSelectedSortBy('popularity.desc');
@@ -89,6 +101,9 @@ export default function SearchScreen() {
     setLoading(true);
     setExpandedKey(null);
     try {
+      const selectedProvider = COMMON_WATCH_PROVIDERS.find(p => p.id === selectedWatchProviderId);
+      const targetProviderId = selectedProvider && selectedProvider.providerId > 0 ? selectedProvider.providerId : undefined;
+
       if (query.trim()) {
         const rawResults = await searchMulti(query.trim());
         let filtered = [...rawResults];
@@ -112,12 +127,32 @@ export default function SearchScreen() {
           }
         }
 
-        // 3. Min Rating Filter
+        // 3. Watch Provider Filter (when searching with query)
+        if (targetProviderId) {
+          const checks = await Promise.all(
+            filtered.map(async (item) => {
+              const key = `${item.media_type}-${item.id}`;
+              let wp: WatchProvidersData | null | undefined = detailsCacheRef.current[key]?.watch_providers;
+              if (!wp) {
+                wp = await getWatchProviders(item.media_type, item.id);
+              }
+              const hasProvider = Boolean(
+                wp?.flatrate?.some(p => p.provider_id === targetProviderId) ||
+                wp?.free?.some(p => p.provider_id === targetProviderId) ||
+                wp?.rent?.some(p => p.provider_id === targetProviderId)
+              );
+              return { item, hasProvider };
+            })
+          );
+          filtered = checks.filter(c => c.hasProvider).map(c => c.item);
+        }
+
+        // 4. Min Rating Filter
         if (selectedMinRating !== null) {
           filtered = filtered.filter(item => (item.vote_average || 0) >= selectedMinRating);
         }
 
-        // 4. Year Filter
+        // 5. Year Filter
         if (selectedYear !== 'all') {
           filtered = filtered.filter(item => {
             const dateStr = item.release_date || item.first_air_date;
@@ -133,7 +168,7 @@ export default function SearchScreen() {
           });
         }
 
-        // 5. Sort
+        // 6. Sort
         if (selectedSortBy === 'vote_average.desc') {
           filtered.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
         } else if (selectedSortBy === 'release_date.desc') {
@@ -146,10 +181,11 @@ export default function SearchScreen() {
 
         setResults(filtered);
       } else {
-        // Discovery mode (curated TMDB search)
+        // Discovery mode (curated TMDB search with watch provider support)
         const discovered = await discoverMedia({
           category: selectedCategory,
           genreId: selectedGenreId,
+          providerId: targetProviderId,
           minRating: selectedMinRating,
           year: selectedYear,
           sortBy: selectedSortBy,
@@ -161,7 +197,7 @@ export default function SearchScreen() {
     } finally {
       setLoading(false);
     }
-  }, [query, selectedCategory, selectedGenreId, selectedMinRating, selectedYear, selectedSortBy]);
+  }, [query, selectedCategory, selectedGenreId, selectedWatchProviderId, selectedMinRating, selectedYear, selectedSortBy]);
 
   // Run search or discovery whenever filters change or on initial mount
   useEffect(() => {
@@ -186,11 +222,11 @@ export default function SearchScreen() {
 
     setExpandedKey(key);
 
-    if (!detailsCache[key]) {
+    if (!detailsCacheRef.current[key]) {
       setLoadingDetailsKey(key);
       try {
         const detail = await getMediaDetails(item.media_type, item.id);
-        setDetailsCache(prev => ({ ...prev, [key]: detail }));
+        updateDetailsCache(key, detail);
       } catch (err) {
         console.error('Failed to load media details for expansion:', err);
       } finally {
@@ -201,7 +237,7 @@ export default function SearchScreen() {
 
   const handleAdd = async (item: TMDBMultiSearchResult) => {
     const key = `${item.media_type}-${item.id}`;
-    let detail = detailsCache[key];
+    let detail = detailsCacheRef.current[key] || detailsCache[key];
 
     setAddingKey(key);
     try {
@@ -209,7 +245,7 @@ export default function SearchScreen() {
       if (!detail) {
         try {
           detail = await getMediaDetails(item.media_type, item.id);
-          setDetailsCache(prev => ({ ...prev, [key]: detail }));
+          updateDetailsCache(key, detail);
         } catch (e) {
           console.warn('Could not fetch full details, falling back to item:', e);
         }
@@ -433,6 +469,69 @@ export default function SearchScreen() {
                   </View>
                 ) : null}
 
+                {/* Watch Providers Section (Onde Assistir no Brasil) */}
+                <View style={styles.providersCard}>
+                  <View style={styles.providersHeaderRow}>
+                    <Text style={styles.providersCardTitle}>📡 Onde Assistir no Brasil</Text>
+                    {detail.watch_providers?.link && (
+                      <TouchableOpacity onPress={() => Linking.openURL(detail.watch_providers!.link!)}>
+                        <Text style={styles.justWatchLink}>Ver opções ↗</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {detail.watch_providers?.flatrate && detail.watch_providers.flatrate.length > 0 ? (
+                    <View style={styles.providersSubSection}>
+                      <Text style={styles.providersSubLabel}>Streaming por Assinatura:</Text>
+                      <View style={styles.providersGrid}>
+                        {detail.watch_providers.flatrate.map((prov) => (
+                          <View key={prov.provider_id} style={styles.providerItem}>
+                            <Image 
+                              source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                              style={styles.providerLogo} 
+                            />
+                            <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ) : detail.watch_providers?.free && detail.watch_providers.free.length > 0 ? (
+                    <View style={styles.providersSubSection}>
+                      <Text style={styles.providersSubLabel}>Gratuito com Anúncios:</Text>
+                      <View style={styles.providersGrid}>
+                        {detail.watch_providers.free.map((prov) => (
+                          <View key={prov.provider_id} style={styles.providerItem}>
+                            <Image 
+                              source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                              style={styles.providerLogo} 
+                            />
+                            <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ) : detail.watch_providers?.rent && detail.watch_providers.rent.length > 0 ? (
+                    <View style={styles.providersSubSection}>
+                      <Text style={styles.providersSubLabel}>Aluguel Digital:</Text>
+                      <View style={styles.providersGrid}>
+                        {detail.watch_providers.rent.slice(0, 4).map((prov) => (
+                          <View key={prov.provider_id} style={styles.providerItem}>
+                            <Image 
+                              source={{ uri: `https://image.tmdb.org/t/p/w92${prov.logo_path}` }} 
+                              style={styles.providerLogo} 
+                            />
+                            <Text style={styles.providerName} numberOfLines={1}>{prov.provider_name}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.noProvidersText}>
+                      Nenhum streaming oficial reportado no Brasil atualmente.
+                    </Text>
+                  )}
+                </View>
+
                 {/* Trailer Section */}
                 {trailerKey ? (
                   <View style={styles.trailerContainer}>
@@ -587,6 +686,25 @@ export default function SearchScreen() {
                   >
                     <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
                       {g.icon} {g.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Plataforma / Onde Assistir (Brasil) */}
+            <Text style={styles.filterSectionTitle}>Onde Assistir (Streaming no Brasil)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+              {COMMON_WATCH_PROVIDERS.map((p) => {
+                const isSelected = selectedWatchProviderId === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[styles.chip, isSelected && styles.chipActive]}
+                    onPress={() => setSelectedWatchProviderId(p.id)}
+                  >
+                    <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                      {p.icon} {p.name}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1187,5 +1305,65 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 14,
     lineHeight: 20,
+  },
+  providersCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  providersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  providersCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  justWatchLink: {
+    fontSize: 11,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  providersSubSection: {
+    marginBottom: 6,
+  },
+  providersSubLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  providersGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  providerItem: {
+    alignItems: 'center',
+    width: 55,
+  },
+  providerLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#cbd5e1',
+    marginBottom: 4,
+  },
+  providerName: {
+    fontSize: 9,
+    color: '#475569',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  noProvidersText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontStyle: 'italic',
   },
 });

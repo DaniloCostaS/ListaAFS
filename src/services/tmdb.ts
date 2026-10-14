@@ -70,6 +70,7 @@ export interface TMDBMediaDetail {
       official?: boolean;
     }[];
   };
+  watch_providers?: WatchProvidersData;
 }
 
 export const checkIfAnime = (item: {
@@ -232,7 +233,7 @@ export const searchMulti = async (query: string, page: number = 1): Promise<TMDB
 };
 
 export const getMediaDetails = async (mediaType: 'movie' | 'tv', id: number): Promise<TMDBMediaDetail> => {
-  const data = await fetchFromTMDB(`/${mediaType}/${id}`, { append_to_response: 'videos' });
+  const data = await fetchFromTMDB(`/${mediaType}/${id}`, { append_to_response: 'videos,watch/providers' });
   if (!data.videos?.results || data.videos.results.length === 0) {
     try {
       const enVideos = await getMediaVideos(mediaType, id);
@@ -240,6 +241,9 @@ export const getMediaDetails = async (mediaType: 'movie' | 'tv', id: number): Pr
     } catch {
       // Ignore fallback error
     }
+  }
+  if (data['watch/providers']?.results?.BR) {
+    data.watch_providers = data['watch/providers'].results.BR;
   }
   return data;
 };
@@ -320,9 +324,29 @@ export const SORT_OPTIONS = [
   { label: '📅 Mais Recentes', value: 'release_date.desc' as const },
 ];
 
+export interface WatchProviderOption {
+  id: string;
+  name: string;
+  providerId: number;
+  icon: string;
+}
+
+export const COMMON_WATCH_PROVIDERS: WatchProviderOption[] = [
+  { id: 'all', name: 'Todas as Plataformas', providerId: 0, icon: '🌐' },
+  { id: 'netflix', name: 'Netflix', providerId: 8, icon: '🔴' },
+  { id: 'prime', name: 'Prime Video', providerId: 119, icon: '📦' },
+  { id: 'disney', name: 'Disney+', providerId: 337, icon: '✨' },
+  { id: 'max', name: 'Max', providerId: 1899, icon: '🟣' },
+  { id: 'crunchyroll', name: 'Crunchyroll', providerId: 283, icon: '🧡' },
+  { id: 'globoplay', name: 'Globoplay', providerId: 307, icon: '🎈' },
+  { id: 'paramount', name: 'Paramount+', providerId: 531, icon: '🏔️' },
+  { id: 'apple', name: 'Apple TV', providerId: 350, icon: '🍏' },
+];
+
 export const discoverMedia = async (filters: {
   category?: 'all' | 'movie' | 'tv' | 'anime';
   genreId?: string;
+  providerId?: number;
   minRating?: number | null;
   year?: string;
   sortBy?: 'popularity.desc' | 'vote_average.desc' | 'release_date.desc';
@@ -331,6 +355,7 @@ export const discoverMedia = async (filters: {
   const { 
     category = 'all', 
     genreId, 
+    providerId,
     minRating, 
     year, 
     sortBy = 'popularity.desc', 
@@ -339,7 +364,16 @@ export const discoverMedia = async (filters: {
 
   const selectedGenre = COMMON_GENRES.find(g => g.id === genreId);
 
-  const getYearParams = (mediaType: 'movie' | 'tv') => {
+  const getWatchProviderParams = (): Record<string, string> => {
+    if (!providerId || providerId <= 0) return {};
+    return {
+      watch_region: 'BR',
+      with_watch_providers: String(providerId),
+      with_watch_monetization_types: 'flatrate|free|ads',
+    };
+  };
+
+  const getYearParams = (mediaType: 'movie' | 'tv'): Record<string, string> => {
     const prefix = mediaType === 'movie' ? 'primary_release_date' : 'first_air_date';
     if (!year || year === 'all') return {};
     if (year === 'recent') return { [`${prefix}.gte`]: '2024-01-01' };
@@ -365,6 +399,7 @@ export const discoverMedia = async (filters: {
       with_original_language: 'ja',
       'vote_count.gte': minRating ? '30' : '15',
       ...getYearParams('tv'),
+      ...getWatchProviderParams(),
     };
     if (minRating) {
       params['vote_average.gte'] = String(minRating);
@@ -384,6 +419,7 @@ export const discoverMedia = async (filters: {
       sort_by: getSortParam('movie'),
       'vote_count.gte': minRating ? '50' : '15',
       ...getYearParams('movie'),
+      ...getWatchProviderParams(),
     };
     if (minRating) {
       params['vote_average.gte'] = String(minRating);
@@ -401,6 +437,7 @@ export const discoverMedia = async (filters: {
       sort_by: getSortParam('tv'),
       'vote_count.gte': minRating ? '50' : '15',
       ...getYearParams('tv'),
+      ...getWatchProviderParams(),
     };
     if (minRating) {
       params['vote_average.gte'] = String(minRating);
@@ -413,23 +450,29 @@ export const discoverMedia = async (filters: {
   }
 
   // category === 'all'
+  const movieParams: Record<string, string> = {
+    page: String(page),
+    sort_by: getSortParam('movie'),
+    'vote_count.gte': minRating ? '50' : '15',
+    ...(minRating ? { 'vote_average.gte': String(minRating) } : {}),
+    ...(selectedGenre && selectedGenre.id !== 'all' ? { with_genres: String(selectedGenre.movieGenreId) } : {}),
+    ...getYearParams('movie'),
+    ...getWatchProviderParams(),
+  };
+
+  const tvParams: Record<string, string> = {
+    page: String(page),
+    sort_by: getSortParam('tv'),
+    'vote_count.gte': minRating ? '50' : '15',
+    ...(minRating ? { 'vote_average.gte': String(minRating) } : {}),
+    ...(selectedGenre && selectedGenre.id !== 'all' ? { with_genres: String(selectedGenre.tvGenreId) } : {}),
+    ...getYearParams('tv'),
+    ...getWatchProviderParams(),
+  };
+
   const [movieData, tvData] = await Promise.all([
-    fetchFromTMDB('/discover/movie', {
-      page: String(page),
-      sort_by: getSortParam('movie'),
-      'vote_count.gte': minRating ? '50' : '15',
-      ...(minRating ? { 'vote_average.gte': String(minRating) } : {}),
-      ...(selectedGenre && selectedGenre.id !== 'all' ? { with_genres: String(selectedGenre.movieGenreId) } : {}),
-      ...getYearParams('movie'),
-    }).catch(() => ({ results: [] })),
-    fetchFromTMDB('/discover/tv', {
-      page: String(page),
-      sort_by: getSortParam('tv'),
-      'vote_count.gte': minRating ? '50' : '15',
-      ...(minRating ? { 'vote_average.gte': String(minRating) } : {}),
-      ...(selectedGenre && selectedGenre.id !== 'all' ? { with_genres: String(selectedGenre.tvGenreId) } : {}),
-      ...getYearParams('tv'),
-    }).catch(() => ({ results: [] })),
+    fetchFromTMDB('/discover/movie', movieParams).catch(() => ({ results: [] })),
+    fetchFromTMDB('/discover/tv', tvParams).catch(() => ({ results: [] })),
   ]);
 
   const movies = (movieData.results || []).map((x: any) => ({ ...x, media_type: 'movie' as const }));
