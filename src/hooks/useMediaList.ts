@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { getDb } from '../database/useDatabase';
 import { MediaType, MediaStatus, MediaCategory } from '../database/schema';
 import { useSyncStore } from '../store/useSyncStore';
+import { supabase } from '../services/supabase';
 import { getMediaDetails, checkIfAnime, findBestTrailer } from '../services/tmdb';
 
 export interface MediaListItem {
@@ -234,6 +235,12 @@ export const useMediaList = () => {
         );
       }
       
+      // Clear pending deletion queue if it was previously deleted
+      await db.runAsync(
+        'DELETE FROM deleted_media_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+        { $tmdb_id: Number(tmdb_id), $media_type: String(media_type) }
+      );
+      
       // Refresh local list immediately
       await loadMedia();
       
@@ -241,6 +248,71 @@ export const useMediaList = () => {
       runSync().catch((err) => console.error('Background sync failed:', err));
     } catch (e) {
       console.error('Error saving media:', e);
+      throw e;
+    }
+  };
+
+  const removeMedia = async (tmdb_id: number, media_type: MediaType) => {
+    if (!tmdb_id || !media_type) {
+      console.warn('Invalid data passed to removeMedia:', { tmdb_id, media_type });
+      return;
+    }
+
+    try {
+      const db = await getDb();
+      const now = Date.now();
+
+      // 1. Delete from local sync_queue and sync_episodes_queue
+      await db.runAsync(
+        'DELETE FROM sync_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+        { $tmdb_id: Number(tmdb_id), $media_type: String(media_type) }
+      );
+      await db.runAsync(
+        'DELETE FROM sync_episodes_queue WHERE tmdb_id = $tmdb_id',
+        { $tmdb_id: Number(tmdb_id) }
+      );
+
+      // 2. Queue for deletion on Supabase
+      await db.runAsync(
+        `INSERT OR REPLACE INTO deleted_media_queue (tmdb_id, media_type, deleted_at)
+         VALUES ($tmdb_id, $media_type, $deleted_at)`,
+        {
+          $tmdb_id: Number(tmdb_id),
+          $media_type: String(media_type),
+          $deleted_at: Number(now),
+        }
+      );
+
+      // Optimistic update of local UI list immediately
+      setData((prev) => prev.filter((item) => !(Number(item.tmdb_id) === Number(tmdb_id) && item.media_type === media_type)));
+
+      // 3. Attempt immediate remote removal from Supabase if authenticated
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase
+            .from('user_media')
+            .delete()
+            .match({ user_id: user.id, tmdb_id: Number(tmdb_id), media_type: String(media_type) });
+
+          await supabase
+            .from('user_episodes')
+            .delete()
+            .match({ user_id: user.id, tmdb_id: Number(tmdb_id) });
+
+          // Removal confirmed remotely, remove from local deletion queue
+          await db.runAsync(
+            'DELETE FROM deleted_media_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+            { $tmdb_id: Number(tmdb_id), $media_type: String(media_type) }
+          );
+        }
+      } catch (remoteErr) {
+        console.warn('Could not sync removal to Supabase immediately (will retry on next sync):', remoteErr);
+      }
+
+      await loadMedia();
+    } catch (e) {
+      console.error('Error removing media:', e);
       throw e;
     }
   };
@@ -284,6 +356,7 @@ export const useMediaList = () => {
     error,
     loadMedia,
     addOrUpdateMedia,
+    removeMedia,
     updateUserReview,
   };
 };

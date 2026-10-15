@@ -8,7 +8,8 @@ import {
   ActivityIndicator, 
   Image, 
   Modal, 
-  ScrollView 
+  ScrollView,
+  Alert
 } from 'react-native';
 import { useMediaList, MediaListItem } from '../hooks/useMediaList';
 import { useSyncStore } from '../store/useSyncStore';
@@ -18,7 +19,7 @@ import { MediaCategory } from '../database/schema';
 import { getMediaAirStatusInfo } from '../services/tmdb';
 
 export default function MainScreen() {
-  const { data, loading, loadMedia } = useMediaList();
+  const { data, loading, loadMedia, removeMedia } = useMediaList();
   const { isSyncing, runSync, lastSyncedAt } = useSyncStore();
   const { signOut, user } = useAuthStore();
   const [selectedCategory, setSelectedCategory] = useState<MediaCategory>('all');
@@ -34,6 +35,27 @@ export default function MainScreen() {
 
   const handleSync = () => {
     runSync().then(() => loadMedia());
+  };
+
+  const handleRemove = (item: MediaListItem) => {
+    Alert.alert(
+      'Remover da Lista',
+      `Tem certeza que deseja remover "${item.title || 'este título'}" da sua lista?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeMedia(item.tmdb_id, item.media_type);
+            } catch {
+              Alert.alert('Erro', 'Não foi possível remover o item da lista.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const counts = useMemo(() => {
@@ -219,8 +241,12 @@ export default function MainScreen() {
     const airStatusInfo = getMediaAirStatusInfo(item);
 
     return (
-      <Link href={`/details/${item.media_type}/${item.tmdb_id}`} asChild>
-        <TouchableOpacity style={styles.card} activeOpacity={0.7}>
+      <View style={styles.card}>
+        <TouchableOpacity 
+          style={styles.cardContent} 
+          activeOpacity={0.7}
+          onPress={() => router.push(`/details/${item.media_type}/${item.tmdb_id}`)}
+        >
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.poster} />
           ) : (
@@ -324,7 +350,18 @@ export default function MainScreen() {
             )}
           </View>
         </TouchableOpacity>
-      </Link>
+
+        {/* Delete button */}
+        <TouchableOpacity
+          style={styles.cardDeleteBtn}
+          onPress={() => handleRemove(item)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Remover da lista"
+        >
+          <Text style={styles.cardDeleteBtnIcon}>🗑️</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -813,12 +850,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     marginBottom: 12,
-    flexDirection: 'row',
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  cardContent: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  cardDeleteBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  cardDeleteBtnIcon: {
+    fontSize: 12,
   },
   poster: {
     width: 95,
@@ -843,6 +905,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 4,
+    paddingRight: 28,
   },
   badge: {
     paddingHorizontal: 7,

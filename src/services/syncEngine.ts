@@ -13,6 +13,33 @@ export const syncEngine = {
         throw new Error('User not authenticated for sync');
       }
 
+      // 0. Push pending deletions to Supabase
+      const pendingDeletions = await db.getAllAsync<{ tmdb_id: number; media_type: MediaType }>(
+        'SELECT tmdb_id, media_type FROM deleted_media_queue'
+      );
+      if (pendingDeletions.length > 0) {
+        for (const del of pendingDeletions) {
+          try {
+            await supabase
+              .from('user_media')
+              .delete()
+              .match({ user_id: user.id, tmdb_id: Number(del.tmdb_id), media_type: String(del.media_type) });
+
+            await supabase
+              .from('user_episodes')
+              .delete()
+              .match({ user_id: user.id, tmdb_id: Number(del.tmdb_id) });
+
+            await db.runAsync(
+              'DELETE FROM deleted_media_queue WHERE tmdb_id = $tmdb_id AND media_type = $media_type',
+              { $tmdb_id: Number(del.tmdb_id), $media_type: String(del.media_type) }
+            );
+          } catch (delErr) {
+            console.warn('Failed to sync deletion for', del, delErr);
+          }
+        }
+      }
+
       // 1. Push local changes to Supabase (Upsert)
       const pendingItems = await db.getAllAsync<{ 
         tmdb_id: number; 
@@ -110,8 +137,17 @@ export const syncEngine = {
 
       if (pullError) throw pullError;
 
+      // Pending deletions should not be re-pulled
+      const remainingDeleted = await db.getAllAsync<{ tmdb_id: number; media_type: string }>(
+        'SELECT tmdb_id, media_type FROM deleted_media_queue'
+      );
+      const deletedSet = new Set(remainingDeleted.map(d => `${d.media_type}-${d.tmdb_id}`));
+
       if (remoteData && remoteData.length > 0) {
         for (const remote of remoteData) {
+          if (deletedSet.has(`${remote.media_type}-${remote.tmdb_id}`)) {
+            continue;
+          }
           const remoteTime = new Date(remote.updated_at).getTime();
           
           const localItem = await db.getFirstAsync<{ updated_at: number; user_rating?: number | null; user_notes?: string | null }>(

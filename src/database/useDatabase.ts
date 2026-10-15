@@ -29,7 +29,8 @@ export const getDb = async (): Promise<SQLite.SQLiteDatabase> => {
           'ALTER TABLE media_cache ADD COLUMN next_air_date TEXT;',
           'ALTER TABLE media_cache ADD COLUMN next_episode_info TEXT;',
           'ALTER TABLE sync_queue ADD COLUMN user_rating REAL;',
-          'ALTER TABLE sync_queue ADD COLUMN user_notes TEXT;'
+          'ALTER TABLE sync_queue ADD COLUMN user_notes TEXT;',
+          'CREATE TABLE IF NOT EXISTS deleted_media_queue (tmdb_id INTEGER NOT NULL, media_type TEXT NOT NULL CHECK (media_type IN (\'movie\', \'tv\')), deleted_at INTEGER NOT NULL, PRIMARY KEY (tmdb_id, media_type));'
         ];
         for (const sql of migrations) {
           try {

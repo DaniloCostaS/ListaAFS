@@ -11,9 +11,10 @@ import {
   Modal, 
   Linking,
   Share,
-  TextInput
+  TextInput,
+  Alert
 } from 'react-native';
-import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Stack, useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { 
   getMediaDetails, 
   getSeasonDetails, 
@@ -55,7 +56,7 @@ export default function DetailsScreen() {
   // Watch providers in Brazil
   const [watchProviders, setWatchProviders] = useState<WatchProvidersData | null>(null);
 
-  const { addOrUpdateMedia, updateUserReview } = useMediaList();
+  const { addOrUpdateMedia, updateUserReview, removeMedia } = useMediaList();
   const { episodes, loadEpisodes, toggleEpisode, toggleSeasonEpisodes } = useMediaDetails(tmdb_id);
 
   const loadLocalStatusAndReview = useCallback(async () => {
@@ -271,6 +272,28 @@ export default function DetailsScreen() {
     } catch (err) {
       console.error('Error sharing:', err);
     }
+  };
+
+  const handleRemoveFromList = () => {
+    Alert.alert(
+      'Remover da Lista',
+      `Tem certeza que deseja remover "${title || 'este título'}" da sua lista?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeMedia(tmdb_id, media_type as 'movie' | 'tv');
+              router.back();
+            } catch {
+              Alert.alert('Erro', 'Não foi possível remover da lista.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -655,6 +678,19 @@ export default function DetailsScreen() {
                   })
                 )}
               </View>
+            </View>
+          )}
+
+          {/* Action to Remove from Watchlist */}
+          {overallStatus && (
+            <View style={styles.removeSection}>
+              <TouchableOpacity
+                style={styles.removeDetailsBtn}
+                onPress={handleRemoveFromList}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.removeDetailsBtnText}>🗑️ Remover da Minha Lista</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -1483,5 +1519,28 @@ const styles = StyleSheet.create({
   },
   modalActionBtnTextWatched: {
     color: '#555',
+  },
+  removeSection: {
+    marginTop: 24,
+    marginBottom: 40,
+  },
+  removeDetailsBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ff3b30',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#ff3b30',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  removeDetailsBtnText: {
+    color: '#ff3b30',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

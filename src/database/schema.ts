@@ -40,6 +40,13 @@ export const SQLITE_SCHEMA = `
     sync_pending INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (tmdb_id, season_number, episode_number)
   );
+
+  CREATE TABLE IF NOT EXISTS deleted_media_queue (
+    tmdb_id INTEGER NOT NULL,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    deleted_at INTEGER NOT NULL,
+    PRIMARY KEY (tmdb_id, media_type)
+  );
 `;
 
 export type MediaType = 'movie' | 'tv';
