@@ -32,6 +32,7 @@ import {
 import { useMediaList } from '../hooks/useMediaList';
 import { getDb } from '../database/useDatabase';
 import { MediaCategory } from '../database/schema';
+import ImageSearchModal from '../components/ImageSearchModal';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -43,6 +44,7 @@ export default function SearchScreen() {
   const [loadingDetailsKey, setLoadingDetailsKey] = useState<string | null>(null);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [existingIds, setExistingIds] = useState<Set<string>>(new Set());
+  const [showImageSearch, setShowImageSearch] = useState(false);
 
   const updateDetailsCache = useCallback((key: string, detail: TMDBMediaDetail) => {
     detailsCacheRef.current[key] = detail;
@@ -622,6 +624,13 @@ export default function SearchScreen() {
           onSubmitEditing={fetchResults}
           returnKeyType="search"
         />
+        <TouchableOpacity
+          style={styles.cameraButton}
+          onPress={() => setShowImageSearch(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.cameraButtonText}>📸</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.searchButton} onPress={fetchResults} disabled={loading}>
           {loading ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -630,6 +639,20 @@ export default function SearchScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Quick Image Search Banner */}
+      <TouchableOpacity
+        style={styles.photoSearchBanner}
+        onPress={() => setShowImageSearch(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.photoSearchBannerIcon}>📸</Text>
+        <View style={styles.photoSearchBannerContent}>
+          <Text style={styles.photoSearchBannerTitle}>Buscar Anime por Print ou Foto</Text>
+          <Text style={styles.photoSearchBannerSub}>Descubra o anime, episódio e minuto exato da cena</Text>
+        </View>
+        <Text style={styles.photoSearchBannerArrow}>›</Text>
+      </TouchableOpacity>
 
       {/* Category Pills Bar */}
       <View style={styles.categoriesBar}>
@@ -797,6 +820,14 @@ export default function SearchScreen() {
           }
         />
       )}
+
+      {/* Image Search Modal (trace.moe) */}
+      <ImageSearchModal
+        visible={showImageSearch}
+        onClose={() => setShowImageSearch(false)}
+        existingIds={existingIds}
+        onItemAdded={(key) => setExistingIds(prev => new Set(prev).add(key))}
+      />
     </View>
   );
 }
@@ -812,19 +843,66 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: '#fff',
-    gap: 10,
+    gap: 8,
   },
   input: {
     flex: 1,
     backgroundColor: '#f0f2f5',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
     fontSize: 15,
   },
+  cameraButton: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  cameraButtonText: {
+    fontSize: 18,
+  },
+  photoSearchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    gap: 10,
+  },
+  photoSearchBannerIcon: {
+    fontSize: 20,
+  },
+  photoSearchBannerContent: {
+    flex: 1,
+  },
+  photoSearchBannerTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#3730A3',
+  },
+  photoSearchBannerSub: {
+    fontSize: 11,
+    color: '#6366F1',
+    marginTop: 1,
+  },
+  photoSearchBannerArrow: {
+    fontSize: 20,
+    color: '#4F46E5',
+    fontWeight: 'bold',
+  },
   searchButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 10,

@@ -27,7 +27,14 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-router",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O app precisa de acesso às suas fotos para buscar o anime a partir de prints e imagens.",
+          "cameraPermission": "O app precisa de acesso à câmera para tirar fotos de cenas ou telas."
+        }
+      ]
     ],
     "extra": {
       "router": {},
