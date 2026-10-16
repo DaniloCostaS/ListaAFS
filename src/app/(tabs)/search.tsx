@@ -484,11 +484,11 @@ export default function SearchScreen() {
                 <View style={styles.providersCard}>
                   <View style={styles.providersHeaderRow}>
                     <Text style={styles.providersCardTitle}>📡 Onde Assistir no Brasil</Text>
-                    {detail.watch_providers?.link && (
+                    {detail.watch_providers?.link ? (
                       <TouchableOpacity onPress={() => Linking.openURL(detail.watch_providers!.link!)}>
                         <Text style={styles.justWatchLink}>Ver opções ↗</Text>
                       </TouchableOpacity>
-                    )}
+                    ) : null}
                   </View>
 
                   {detail.watch_providers?.flatrate && detail.watch_providers.flatrate.length > 0 ? (
@@ -694,15 +694,15 @@ export default function SearchScreen() {
           </Text>
         </TouchableOpacity>
 
-        {activeFiltersCount > 0 && (
+        {activeFiltersCount > 0 ? (
           <TouchableOpacity style={styles.resetFiltersBtn} onPress={handleResetFilters}>
             <Text style={styles.resetFiltersText}>✕ Limpar Filtros</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
 
       {/* Collapsible Filter Panel */}
-      {showFilters && (
+      {showFilters ? (
         <View style={styles.filtersPanel}>
           <ScrollView showsVerticalScrollIndicator={false} style={styles.filterScroll}>
             {/* 1. Gêneros */}
@@ -801,7 +801,7 @@ export default function SearchScreen() {
             </ScrollView>
           </ScrollView>
         </View>
-      )}
+      ) : null}
 
       {/* Feed Title Bar */}
       <View style={styles.feedHeaderRow}>

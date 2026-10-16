@@ -294,11 +294,11 @@ export default function HomeScreen() {
                     </Text>
                   </View>
 
-                  {lastWatchedItem.is_pinned && (
+                  {Boolean(lastWatchedItem.is_pinned) ? (
                     <View style={styles.heroPinnedBadge}>
                       <Text style={styles.heroPinnedBadgeText}>📌 Fixado</Text>
                     </View>
-                  )}
+                  ) : null}
                 </View>
 
                 <Text style={styles.heroTitle} numberOfLines={2}>
@@ -409,11 +409,11 @@ export default function HomeScreen() {
                         {item.title}
                       </Text>
 
-                      {item.next_episode_info && (
+                      {item.next_episode_info ? (
                         <Text style={styles.scheduleEpInfo}>
                           {item.next_episode_info}
                         </Text>
-                      )}
+                      ) : null}
                     </View>
                   </TouchableOpacity>
                 );
@@ -430,7 +430,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Global Collection Progress Banner */}
-        {overallProgress.totalEps > 0 && (
+        {overallProgress.totalEps > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>📊 Progresso da Coleção</Text>
             <View style={styles.progressCard}>
@@ -446,7 +446,7 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
-        )}
+        ) : null}
 
         {/* Account Statistics Grid */}
         <View style={styles.section}>

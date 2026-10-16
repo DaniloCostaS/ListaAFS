@@ -243,11 +243,11 @@ export default function MyListScreen() {
 
             {/* Badges Row: Category, Status, Pinned, Rating */}
             <View style={styles.cardBadgesRow}>
-              {isPinned && (
+              {isPinned ? (
                 <View style={styles.pinnedBadge}>
                   <Text style={styles.pinnedBadgeText}>📌 Fixado</Text>
                 </View>
-              )}
+              ) : null}
 
               <View style={[styles.badge, isAnime ? styles.badgeAnime : item.media_type === 'movie' ? styles.badgeMovie : styles.badgeTv]}>
                 <Text style={styles.badgeText}>
@@ -261,9 +261,9 @@ export default function MyListScreen() {
                 </Text>
               </View>
 
-              {releaseYear && (
+              {releaseYear ? (
                 <Text style={styles.cardYearText}>{releaseYear}</Text>
-              )}
+              ) : null}
 
               {(item.user_rating && item.user_rating > 0) ? (
                 <View style={styles.userRatingBadge}>
@@ -277,7 +277,7 @@ export default function MyListScreen() {
             </View>
 
             {/* Air status banner */}
-            {airStatusInfo && (
+            {airStatusInfo ? (
               <View style={[
                 styles.cardAirStatus,
                 airStatusInfo.badgeStyle === 'ended' && styles.cardAirStatusEnded,
@@ -289,24 +289,24 @@ export default function MyListScreen() {
                   {airStatusInfo.label}
                 </Text>
               </View>
-            )}
+            ) : null}
 
             {/* Episode progress bar for Series / Anime */}
-            {item.media_type === 'tv' && (
+            {item.media_type === 'tv' ? (
               <View style={styles.cardProgressContainer}>
                 <View style={styles.cardProgressHeader}>
                   <Text style={styles.cardProgressLabel}>
                     Progresso: <Text style={styles.cardProgressValue}>{watchedEpisodes}</Text>
                     {totalEpisodes > 0 ? `/${totalEpisodes} eps` : ' eps assistidos'}
                   </Text>
-                  {totalEpisodes > 0 && (
+                  {totalEpisodes > 0 ? (
                     <Text style={[
                       styles.cardProgressPercent, 
                       progressPercent === 100 && styles.cardProgressPercentDone
                     ]}>
                       {progressPercent === 100 ? '✓ 100%' : `${progressPercent}%`}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
                 <View style={styles.cardProgressBarTrack}>
                   <View 
@@ -320,7 +320,7 @@ export default function MyListScreen() {
                   />
                 </View>
               </View>
-            )}
+            ) : null}
           </View>
         </TouchableOpacity>
 
@@ -339,7 +339,7 @@ export default function MyListScreen() {
           </TouchableOpacity>
 
           {/* Quick +1 Episode Button (TV & Anime) */}
-          {item.media_type === 'tv' && (
+          {item.media_type === 'tv' ? (
             <TouchableOpacity
               style={[styles.actionBtn, styles.actionBtnAddEp, isInc && styles.actionBtnAddEpActive]}
               onPress={() => handleQuickIncrement(item)}
@@ -353,7 +353,7 @@ export default function MyListScreen() {
                 <Text style={styles.actionBtnAddEpText}>+1</Text>
               )}
             </TouchableOpacity>
-          )}
+          ) : null}
 
           {/* Delete Button */}
           <TouchableOpacity
@@ -407,11 +407,11 @@ export default function MyListScreen() {
             returnKeyType="search"
             clearButtonMode="while-editing"
           />
-          {searchQuery.length > 0 && (
+          {searchQuery.length > 0 ? (
             <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClearBtn}>
               <Text style={styles.searchClearText}>✕</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </View>
 
