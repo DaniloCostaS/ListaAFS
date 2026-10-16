@@ -26,6 +26,7 @@ export interface MediaListItem {
   watched_episodes_count?: number;
   user_rating?: number | null;
   user_notes?: string | null;
+  is_pinned?: number | null;
 }
 
 export interface MediaMetadataInput {
@@ -156,7 +157,7 @@ export const useMediaList = () => {
         }
       }
       
-      query += ` ORDER BY q.updated_at DESC`;
+      query += ` ORDER BY COALESCE(q.is_pinned, 0) DESC, q.updated_at DESC`;
 
       const result = await db.getAllAsync<MediaListItem>(query, params);
 
@@ -350,6 +351,66 @@ export const useMediaList = () => {
     }
   };
 
+  const togglePinMedia = useCallback(async (tmdb_id: number, media_type: MediaType) => {
+    try {
+      const db = await getDb();
+      await db.runAsync(
+        `UPDATE sync_queue 
+         SET is_pinned = CASE WHEN COALESCE(is_pinned, 0) = 1 THEN 0 ELSE 1 END,
+             updated_at = $updated_at,
+             sync_pending = 1
+         WHERE tmdb_id = $tmdb_id AND media_type = $media_type`,
+        {
+          $tmdb_id: Number(tmdb_id),
+          $media_type: String(media_type),
+          $updated_at: Date.now(),
+        }
+      );
+      await loadMedia();
+      runSync().catch((err) => console.error('Background sync failed:', err));
+    } catch (e) {
+      console.error('Error toggling pin:', e);
+      throw e;
+    }
+  }, [loadMedia, runSync]);
+
+  const quickIncrementEpisode = useCallback(async (item: MediaListItem) => {
+    if (item.media_type !== 'tv') return;
+    try {
+      const db = await getDb();
+      const currentWatched = item.watched_episodes_count || 0;
+      const nextWatched = currentWatched + 1;
+      const totalEpisodes = item.episode_count || 0;
+
+      const lastWatched = await db.getFirstAsync<{ season_number: number; episode_number: number }>(
+        'SELECT season_number, episode_number FROM sync_episodes_queue WHERE tmdb_id = ? AND watched = 1 ORDER BY season_number DESC, episode_number DESC LIMIT 1',
+        [Number(item.tmdb_id)]
+      );
+
+      const targetSeason = lastWatched?.season_number || 1;
+      const targetEpisode = (lastWatched?.episode_number || 0) + 1;
+      const now = Date.now();
+
+      await db.runAsync(
+        `INSERT OR REPLACE INTO sync_episodes_queue (tmdb_id, season_number, episode_number, watched, updated_at, sync_pending) 
+         VALUES (?, ?, ?, 1, ?, 1)`,
+        [Number(item.tmdb_id), targetSeason, targetEpisode, now]
+      );
+
+      const nextStatus = (totalEpisodes > 0 && nextWatched >= totalEpisodes) ? 'completed' : 'watching';
+
+      await db.runAsync(
+        `UPDATE sync_queue SET status = ?, updated_at = ?, sync_pending = 1 WHERE tmdb_id = ? AND media_type = 'tv'`,
+        [nextStatus, now, Number(item.tmdb_id)]
+      );
+
+      await loadMedia();
+      runSync().catch((err) => console.error('Background sync failed:', err));
+    } catch (e) {
+      console.error('Error incrementing episode:', e);
+    }
+  }, [loadMedia, runSync]);
+
   return {
     data,
     loading,
@@ -358,5 +419,7 @@ export const useMediaList = () => {
     addOrUpdateMedia,
     removeMedia,
     updateUserReview,
+    togglePinMedia,
+    quickIncrementEpisode,
   };
 };

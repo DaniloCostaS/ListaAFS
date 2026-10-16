@@ -9,8 +9,11 @@ import {
   ActivityIndicator,
   Image,
   Linking,
-  ScrollView
+  ScrollView,
+  Platform,
+  StatusBar as RNStatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import {
   searchMulti,
@@ -28,11 +31,11 @@ import {
   getMediaAirStatusInfo,
   getWatchProviders,
   WatchProvidersData,
-} from '../services/tmdb';
-import { useMediaList } from '../hooks/useMediaList';
-import { getDb } from '../database/useDatabase';
-import { MediaCategory } from '../database/schema';
-import ImageSearchModal from '../components/ImageSearchModal';
+} from '../../services/tmdb';
+import { useMediaList } from '../../hooks/useMediaList';
+import { getDb } from '../../database/useDatabase';
+import { MediaCategory } from '../../database/schema';
+import ImageSearchModal from '../../components/ImageSearchModal';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -59,6 +62,12 @@ export default function SearchScreen() {
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedSortBy, setSelectedSortBy] = useState<'popularity.desc' | 'vote_average.desc' | 'release_date.desc'>('popularity.desc');
   const [showFilters, setShowFilters] = useState<boolean>(false);
+
+  const insets = useSafeAreaInsets();
+  const statusBarHeight = insets.top > 0
+    ? insets.top
+    : (Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 0);
+  const searchBarPaddingTop = statusBarHeight > 0 ? statusBarHeight + 10 : 12;
 
   const router = useRouter();
   const { addOrUpdateMedia } = useMediaList();
@@ -283,8 +292,8 @@ export default function SearchScreen() {
       // Update local set of existing IDs
       setExistingIds(prev => new Set(prev).add(key));
 
-      // Return immediately so the user sees the synchronized list with the new addition
-      router.back();
+      // Navigate to list tab so the user sees the synchronized list with the new addition
+      router.push('/list');
     } catch (err) {
       console.error('Error adding media:', err);
     } finally {
@@ -615,7 +624,7 @@ export default function SearchScreen() {
       <Stack.Screen options={{ title: 'Buscar & Explorar', headerBackTitle: 'Voltar' }} />
 
       {/* Top Search Input Bar */}
-      <View style={styles.searchBar}>
+      <View style={[styles.searchBar, { paddingTop: searchBarPaddingTop }]}>
         <TextInput
           style={styles.input}
           placeholder="Buscar filme, série ou anime..."
@@ -808,7 +817,10 @@ export default function SearchScreen() {
           data={results}
           keyExtractor={(item) => `${item.media_type}-${item.id}`}
           renderItem={renderItem}
-          contentContainerStyle={styles.listContainer}
+          contentContainerStyle={[
+            styles.listContainer,
+            { paddingBottom: Math.max(insets.bottom, 16) + 16 },
+          ]}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>

@@ -9,6 +9,7 @@ export const SQLITE_SCHEMA = `
     sync_pending INTEGER NOT NULL DEFAULT 0, -- 0 for false, 1 for true
     user_rating REAL,
     user_notes TEXT,
+    is_pinned INTEGER DEFAULT 0,
     PRIMARY KEY (tmdb_id, media_type)
   );
 
@@ -61,6 +62,7 @@ export interface SyncQueueItem {
   sync_pending: boolean;
   user_rating?: number | null;
   user_notes?: string | null;
+  is_pinned?: number | boolean | null;
 }
 
 export interface MediaCacheItem {

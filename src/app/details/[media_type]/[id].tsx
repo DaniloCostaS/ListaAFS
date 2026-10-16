@@ -12,8 +12,11 @@ import {
   Linking,
   Share,
   TextInput,
-  Alert
+  Alert,
+  Platform,
+  StatusBar as RNStatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, useFocusEffect, router } from 'expo-router';
 import { 
   getMediaDetails, 
@@ -58,6 +61,12 @@ export default function DetailsScreen() {
 
   const { addOrUpdateMedia, updateUserReview, removeMedia } = useMediaList();
   const { episodes, loadEpisodes, toggleEpisode, toggleSeasonEpisodes } = useMediaDetails(tmdb_id);
+
+  const insets = useSafeAreaInsets();
+  const statusBarHeight = insets.top > 0
+    ? insets.top
+    : (Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 0);
+  const backButtonTop = statusBarHeight > 0 ? statusBarHeight + 10 : 16;
 
   const loadLocalStatusAndReview = useCallback(async () => {
     if (!tmdb_id || isNaN(tmdb_id) || !media_type) return;
@@ -298,6 +307,15 @@ export default function DetailsScreen() {
 
   return (
     <View style={styles.screenWrapper}>
+      <TouchableOpacity
+        style={[styles.floatingBackButton, { top: backButtonTop }]}
+        onPress={() => router.back()}
+        activeOpacity={0.8}
+        accessibilityLabel="Voltar"
+      >
+        <Text style={styles.floatingBackButtonText}>‹ Voltar</Text>
+      </TouchableOpacity>
+
       <ScrollView style={styles.container}>
         <Stack.Screen options={{ title: title || 'Detalhes', headerBackTitle: 'Voltar' }} />
         
@@ -803,6 +821,24 @@ export default function DetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  floatingBackButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 99,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  floatingBackButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   screenWrapper: {
     flex: 1,
     backgroundColor: '#fff',
