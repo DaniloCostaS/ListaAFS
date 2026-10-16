@@ -161,6 +161,27 @@ export const useMediaList = () => {
 
       const result = await db.getAllAsync<MediaListItem>(query, params);
 
+      // Clamp watched_episodes_count to episode_count and clean up excess in background if needed
+      for (const row of result) {
+        if (row.episode_count && row.episode_count > 0 && (row.watched_episodes_count || 0) > row.episode_count) {
+          const excess = (row.watched_episodes_count || 0) - row.episode_count;
+          db.getAllAsync<{ season_number: number; episode_number: number }>(
+            'SELECT season_number, episode_number FROM sync_episodes_queue WHERE tmdb_id = ? AND watched = 1 ORDER BY season_number DESC, episode_number DESC',
+            [Number(row.tmdb_id)]
+          ).then((eps) => {
+            const toDel = eps.slice(0, excess);
+            for (const ep of toDel) {
+              db.runAsync(
+                'DELETE FROM sync_episodes_queue WHERE tmdb_id = ? AND season_number = ? AND episode_number = ?',
+                [Number(row.tmdb_id), ep.season_number, ep.episode_number]
+              );
+            }
+          }).catch((err) => console.error('Failed to clean up excess episodes:', err));
+
+          row.watched_episodes_count = row.episode_count;
+        }
+      }
+
       setData(result);
 
       // Check if any items need metadata population (e.g. Boruto/Slime with missing release_date, unclassified anime, or missing episode count)
@@ -379,8 +400,21 @@ export const useMediaList = () => {
     try {
       const db = await getDb();
       const currentWatched = item.watched_episodes_count || 0;
-      const nextWatched = currentWatched + 1;
       const totalEpisodes = item.episode_count || 0;
+
+      // Validation: If totalEpisodes is known and already 100% watched, do not increment further!
+      if (totalEpisodes > 0 && currentWatched >= totalEpisodes) {
+        if (item.status !== 'completed') {
+          await db.runAsync(
+            "UPDATE sync_queue SET status = 'completed', updated_at = ?, sync_pending = 1 WHERE tmdb_id = ? AND media_type = 'tv'",
+            [Date.now(), Number(item.tmdb_id)]
+          );
+          await loadMedia();
+        }
+        return;
+      }
+
+      const nextWatched = currentWatched + 1;
 
       const lastWatched = await db.getFirstAsync<{ season_number: number; episode_number: number }>(
         'SELECT season_number, episode_number FROM sync_episodes_queue WHERE tmdb_id = ? AND watched = 1 ORDER BY season_number DESC, episode_number DESC LIMIT 1',

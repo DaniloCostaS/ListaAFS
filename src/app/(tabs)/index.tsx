@@ -305,48 +305,59 @@ export default function HomeScreen() {
                   {lastWatchedItem.title}
                 </Text>
 
-                {lastWatchedItem.media_type === 'tv' && (
-                  <View style={styles.heroProgressBlock}>
-                    <View style={styles.heroProgressHeader}>
-                      <Text style={styles.heroProgressText}>
-                        Episódio {lastWatchedItem.watched_episodes_count || 0}
-                        {lastWatchedItem.episode_count ? ` de ${lastWatchedItem.episode_count}` : ''}
-                      </Text>
-                      {lastWatchedItem.episode_count ? (
-                        <Text style={styles.heroProgressPercent}>
-                          {Math.min(100, Math.round(((lastWatchedItem.watched_episodes_count || 0) / lastWatchedItem.episode_count) * 100))}%
+                {lastWatchedItem.media_type === 'tv' && (() => {
+                  const heroTotal = lastWatchedItem.episode_count || 0;
+                  const heroRawWatched = lastWatchedItem.watched_episodes_count || 0;
+                  const heroWatched = (heroTotal > 0 && heroRawWatched > heroTotal) ? heroTotal : heroRawWatched;
+                  const heroIsCompleted = heroTotal > 0 && heroWatched >= heroTotal;
+                  const heroPercent = heroTotal > 0 ? Math.min(100, Math.round((heroWatched / heroTotal) * 100)) : 0;
+                  const isInc = incrementingId === `${lastWatchedItem.media_type}-${lastWatchedItem.tmdb_id}`;
+
+                  return (
+                    <View style={styles.heroProgressBlock}>
+                      <View style={styles.heroProgressHeader}>
+                        <Text style={styles.heroProgressText}>
+                          Episódio {heroWatched}
+                          {heroTotal > 0 ? ` de ${heroTotal}` : ''}
                         </Text>
-                      ) : null}
-                    </View>
+                        {heroTotal > 0 ? (
+                          <Text style={[styles.heroProgressPercent, heroIsCompleted && styles.heroProgressPercentDone]}>
+                            {heroIsCompleted ? '✓ 100%' : `${heroPercent}%`}
+                          </Text>
+                        ) : null}
+                      </View>
 
-                    <View style={styles.heroProgressBarTrack}>
-                      <View 
+                      <View style={styles.heroProgressBarTrack}>
+                        <View 
+                          style={[
+                            styles.heroProgressBarFill,
+                            { width: `${heroPercent}%` },
+                            heroIsCompleted && styles.heroProgressBarFillDone
+                          ]} 
+                        />
+                      </View>
+
+                      {/* Quick +1 Episode Button */}
+                      <TouchableOpacity
                         style={[
-                          styles.heroProgressBarFill,
-                          {
-                            width: `${lastWatchedItem.episode_count 
-                              ? Math.min(100, Math.round(((lastWatchedItem.watched_episodes_count || 0) / lastWatchedItem.episode_count) * 100)) 
-                              : 0}%`
-                          }
-                        ]} 
-                      />
+                          styles.heroAddEpBtn,
+                          heroIsCompleted && styles.heroAddEpBtnDisabled,
+                        ]}
+                        onPress={() => !heroIsCompleted && handleQuickIncrement(lastWatchedItem)}
+                        disabled={heroIsCompleted || isInc}
+                        activeOpacity={heroIsCompleted ? 1 : 0.8}
+                      >
+                        {isInc ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.heroAddEpBtnText}>
+                            {heroIsCompleted ? '✓ Todos Episódios Assistidos' : '+1 Episódio Assistido'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
-
-                    {/* Quick +1 Episode Button */}
-                    <TouchableOpacity
-                      style={styles.heroAddEpBtn}
-                      onPress={() => handleQuickIncrement(lastWatchedItem)}
-                      disabled={incrementingId === `${lastWatchedItem.media_type}-${lastWatchedItem.tmdb_id}`}
-                      activeOpacity={0.8}
-                    >
-                      {incrementingId === `${lastWatchedItem.media_type}-${lastWatchedItem.tmdb_id}` ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text style={styles.heroAddEpBtnText}>+1 Episódio Assistido</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  );
+                })()}
               </View>
             </TouchableOpacity>
           </View>
@@ -700,6 +711,9 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '700',
   },
+  heroProgressPercentDone: {
+    color: '#10B981',
+  },
   heroProgressBarTrack: {
     height: 6,
     backgroundColor: '#E2E8F0',
@@ -712,12 +726,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     borderRadius: 3,
   },
+  heroProgressBarFillDone: {
+    backgroundColor: '#10B981',
+  },
   heroAddEpBtn: {
     backgroundColor: '#007AFF',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  heroAddEpBtnDisabled: {
+    backgroundColor: '#10B981',
   },
   heroAddEpBtnText: {
     color: '#FFFFFF',

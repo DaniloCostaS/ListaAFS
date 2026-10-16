@@ -192,7 +192,11 @@ export default function MyListScreen() {
   const renderItem = ({ item }: { item: MediaListItem }) => {
     const isAnime = Boolean(item.is_anime);
     const totalEpisodes = item.episode_count || 0;
-    const watchedEpisodes = item.watched_episodes_count || 0;
+    const rawWatched = item.watched_episodes_count || 0;
+    const watchedEpisodes = (totalEpisodes > 0 && rawWatched > totalEpisodes) 
+      ? totalEpisodes 
+      : rawWatched;
+    const isCompleted = totalEpisodes > 0 && watchedEpisodes >= totalEpisodes;
     const progressPercent = totalEpisodes > 0 
       ? Math.min(100, Math.round((watchedEpisodes / totalEpisodes) * 100)) 
       : 0;
@@ -341,14 +345,21 @@ export default function MyListScreen() {
           {/* Quick +1 Episode Button (TV & Anime) */}
           {item.media_type === 'tv' ? (
             <TouchableOpacity
-              style={[styles.actionBtn, styles.actionBtnAddEp, isInc && styles.actionBtnAddEpActive]}
-              onPress={() => handleQuickIncrement(item)}
-              activeOpacity={0.7}
-              disabled={isInc}
-              accessibilityLabel="Marcar próximo episódio assistido"
+              style={[
+                styles.actionBtn, 
+                styles.actionBtnAddEp, 
+                isCompleted && styles.actionBtnAddEpDisabled,
+                isInc && styles.actionBtnAddEpActive
+              ]}
+              onPress={() => !isCompleted && handleQuickIncrement(item)}
+              activeOpacity={isCompleted ? 1 : 0.7}
+              disabled={isInc || isCompleted}
+              accessibilityLabel={isCompleted ? "Todos os episódios assistidos" : "Marcar próximo episódio assistido"}
             >
               {isInc ? (
                 <ActivityIndicator size="small" color="#007AFF" />
+              ) : isCompleted ? (
+                <Text style={styles.actionBtnAddEpDoneText}>✓</Text>
               ) : (
                 <Text style={styles.actionBtnAddEpText}>+1</Text>
               )}
@@ -936,10 +947,19 @@ const styles = StyleSheet.create({
   actionBtnAddEpActive: {
     backgroundColor: '#DBEAFE',
   },
+  actionBtnAddEpDisabled: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
   actionBtnAddEpText: {
     fontSize: 12,
     fontWeight: '800',
     color: '#1D4ED8',
+  },
+  actionBtnAddEpDoneText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#10B981',
   },
   actionBtnDelete: {
     opacity: 0.6,
