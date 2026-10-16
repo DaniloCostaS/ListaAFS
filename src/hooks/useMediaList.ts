@@ -115,7 +115,7 @@ export const useMediaList = () => {
                   ), 0) AS watched_episodes_count
            FROM sync_queue q
            LEFT JOIN media_cache c ON q.tmdb_id = c.tmdb_id AND q.media_type = c.media_type
-           ORDER BY q.updated_at DESC`
+           ORDER BY COALESCE(q.is_pinned, 0) DESC, q.updated_at DESC`
         );
         setData(updated);
       }

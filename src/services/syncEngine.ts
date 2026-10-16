@@ -71,19 +71,42 @@ export const syncEngine = {
           .from('user_media')
           .upsert(payload, { onConflict: 'user_id, tmdb_id, media_type' });
 
-        // If Supabase table does not yet have user_rating / user_notes / is_pinned columns, fallback to base payload
-        if (upsertError && (upsertError.message?.includes('column') || (upsertError as any).code === '42703')) {
-          const fallbackPayload = pendingItems.map(item => ({
+        // If Supabase table does not yet have is_pinned / user_rating / user_notes columns, fallback gracefully
+        if (upsertError && (
+          upsertError.message?.includes('column') || 
+          (upsertError as any).code === '42703' || 
+          (upsertError as any).code === 'PGRST204'
+        )) {
+          // Attempt 1: Without is_pinned, but keeping user_rating and user_notes
+          const withoutPinnedPayload = pendingItems.map(item => ({
             user_id: user.id,
             tmdb_id: item.tmdb_id,
             media_type: item.media_type,
             status: item.status,
+            user_rating: item.user_rating ?? null,
+            user_notes: item.user_notes ?? null,
             updated_at: new Date(item.updated_at).toISOString(),
           }));
-          const fallbackResult = await supabase
+          const withoutPinnedResult = await supabase
             .from('user_media')
-            .upsert(fallbackPayload, { onConflict: 'user_id, tmdb_id, media_type' });
-          upsertError = fallbackResult.error;
+            .upsert(withoutPinnedPayload, { onConflict: 'user_id, tmdb_id, media_type' });
+
+          if (withoutPinnedResult.error) {
+            // Attempt 2: Minimal base payload if user_rating/user_notes also do not exist
+            const fallbackPayload = pendingItems.map(item => ({
+              user_id: user.id,
+              tmdb_id: item.tmdb_id,
+              media_type: item.media_type,
+              status: item.status,
+              updated_at: new Date(item.updated_at).toISOString(),
+            }));
+            const fallbackResult = await supabase
+              .from('user_media')
+              .upsert(fallbackPayload, { onConflict: 'user_id, tmdb_id, media_type' });
+            upsertError = fallbackResult.error;
+          } else {
+            upsertError = null;
+          }
         }
 
         if (upsertError) throw upsertError;
@@ -131,7 +154,7 @@ export const syncEngine = {
       }
 
       // 2. Pull remote changes from Supabase
-      // Conflict resolution: latest updated_at wins, but preserve local ratings/notes if remote is null
+      // Conflict resolution: latest updated_at wins, but preserve local ratings/notes/is_pinned if remote is null/undefined
       const { data: remoteData, error: pullError } = await supabase
         .from('user_media')
         .select('*')
@@ -158,6 +181,12 @@ export const syncEngine = {
           );
 
           if (!localItem || localItem.updated_at < remoteTime) {
+            // If remote explicitly provides is_pinned, use it; otherwise preserve localItem's is_pinned
+            const hasRemotePinned = remote.is_pinned !== undefined && remote.is_pinned !== null;
+            const pinnedValue = hasRemotePinned
+              ? (remote.is_pinned ? 1 : 0)
+              : (localItem?.is_pinned ? 1 : 0);
+
             await db.runAsync(
               `INSERT INTO sync_queue (tmdb_id, media_type, status, user_rating, user_notes, is_pinned, updated_at, sync_pending) 
                VALUES ($tmdb_id, $media_type, $status, $user_rating, $user_notes, $is_pinned, $updated_at, 0)
@@ -165,7 +194,7 @@ export const syncEngine = {
                  status = excluded.status,
                  user_rating = COALESCE(excluded.user_rating, sync_queue.user_rating),
                  user_notes = COALESCE(excluded.user_notes, sync_queue.user_notes),
-                 is_pinned = COALESCE(excluded.is_pinned, sync_queue.is_pinned),
+                 is_pinned = excluded.is_pinned,
                  updated_at = excluded.updated_at,
                  sync_pending = 0`,
               { 
@@ -174,7 +203,7 @@ export const syncEngine = {
                 $status: String(remote.status), 
                 $user_rating: remote.user_rating ?? null,
                 $user_notes: remote.user_notes ?? null,
-                $is_pinned: remote.is_pinned ? 1 : 0,
+                $is_pinned: pinnedValue,
                 $updated_at: Number(remoteTime) 
               }
             );
